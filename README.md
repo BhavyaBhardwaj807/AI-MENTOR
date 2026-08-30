@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎙️ Agora Meet — AI-Powered Real-Time Meeting Platform
 
-## Getting Started
+A real-time meeting platform built with **Next.js** and **Agora RTC**, featuring an AI Mentor that can join meetings, listen to participants, understand conversations, and respond naturally using voice.
 
-First, run the development server:
+The project combines real-time audio/video communication with **Conversational AI** to create an interactive meeting experience.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## ✨ Features
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- 🎥 **Real-time video meetings**
+  - Audio and video communication using Agora RTC
+  - Dynamic meeting rooms with unique channel IDs
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- 🤖 **AI Mentor**
+  - AI agent can join an active meeting
+  - Listens to participant audio
+  - Processes speech using ASR
+  - Generates responses using an LLM
+  - Responds using TTS
 
-## Learn More
+- 🗣️ **Natural Voice Interaction**
+  - Real-time conversational interaction
+  - Configurable TTS voice through the Agora Conversational AI pipeline
 
-To learn more about Next.js, take a look at the following resources:
+- 🎭 **AI Avatar Integration**
+  - Integrated with Agora's LiveAvatar support
+  - Avatar is configured as a separate RTC participant
+  - Uses a dedicated Agora UID for avatar video
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 🔐 **Secure Server-Side API**
+  - Agora REST credentials are kept server-side
+  - RTC tokens are generated securely
+  - Sensitive credentials are stored using environment variables
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- 🧹 **Agent Lifecycle Management**
+  - Automatically checks for existing agents in a meeting
+  - Stops stale agents before starting a new one
+  - Tracks active agents per meeting
 
-## Deploy on Vercel
+- 🛠️ **Developer Diagnostics**
+  - Detailed Agora agent startup logs
+  - Agent status monitoring
+  - Audio-level diagnostics
+  - RTC publish/subscribe diagnostics
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🏗️ Architecture
+
+```text
+                    ┌─────────────────────┐
+                    │      Next.js App    │
+                    │                     │
+                    │  Meeting Interface  │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     Agora RTC       │
+                    │                     │
+                    │ Audio / Video Room  │
+                    └──────────┬──────────┘
+                               │
+             ┌─────────────────┴─────────────────┐
+             │                                   │
+             ▼                                   ▼
+     ┌───────────────┐                  ┌─────────────────┐
+     │   Participant │                  │   AI Mentor     │
+     │               │                  │                 │
+     │ Mic + Camera  │                  │ Agora Agent     │
+     └───────────────┘                  └────────┬────────┘
+                                                  │
+                                                  ▼
+                                      ┌─────────────────────┐
+                                      │ Conversational AI   │
+                                      │                     │
+                                      │ ASR → LLM → TTS    │
+                                      └──────────┬──────────┘
+                                                 │
+                                                 ▼
+                                      ┌─────────────────────┐
+                                      │     LiveAvatar      │
+                                      │                     │
+                                      │ Avatar RTC Video    │
+                                      └─────────────────────┘
