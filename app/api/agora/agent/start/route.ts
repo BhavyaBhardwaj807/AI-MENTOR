@@ -23,17 +23,26 @@ export async function POST(request: Request) {
     const agentUid = parseInt(process.env.AGORA_AI_AGENT_UID || "999999", 10);
     const avatarUid = parseInt(process.env.AGORA_AVATAR_UID || "999998", 10);
     agentStore.register(channelName, agentId, agentUid);
-    console.log(`[AI] Agent started — agentId: ${agentId}, agentUid: ${agentUid}, avatarUid: ${avatarUid}, channel: ${channelName}`);
-    // Poll agent status after 3s to surface any avatar errors
-    setTimeout(async () => {
+    console.log(`[Avatar:backend] agent registered — agentId: ${agentId}, agentUid: ${agentUid}, avatarUid: ${avatarUid}, channel: ${channelName}`);
+
+    // Poll agent status at 5s, 10s, 20s to surface avatar provisioning errors
+    const appId = process.env.AGORA_APP_ID!;
+    const auth = "Basic " + Buffer.from(`${process.env.AGORA_REST_KEY}:${process.env.AGORA_REST_SECRET}`).toString("base64");
+    const pollStatus = async (delayMs: number) => {
+      await new Promise((r) => setTimeout(r, delayMs));
       try {
-        const appId = process.env.AGORA_APP_ID!;
-        const auth = "Basic " + Buffer.from(`${process.env.AGORA_REST_KEY}:${process.env.AGORA_REST_SECRET}`).toString("base64");
         const r = await fetch(`https://api.agora.io/api/conversational-ai-agent/v2/projects/${appId}/agents/${agentId}`, { headers: { Authorization: auth } });
-        const d = await r.json();
-        console.log("[AI:status] agent status poll:", JSON.stringify(d));
-      } catch (e) { console.warn("[AI:status] poll failed:", e); }
-    }, 8000);
+        const d = await r.json().catch(() => ({}));
+        console.log(`[Avatar:backend] --- STATUS POLL (${delayMs / 1000}s) ---`);
+        console.log(`[Avatar:backend] provisioning status  :`, d.status ?? "MISSING");
+        console.log(`[Avatar:backend] message              :`, d.message ?? "NONE");
+        console.log(`[Avatar:backend] error                :`, d.error ?? d.err ?? d.reason ?? "NONE");
+        console.log(`[Avatar:backend] full_response        :`, JSON.stringify(d));
+      } catch (e) { console.warn(`[Avatar:backend] poll (${delayMs / 1000}s) failed:`, e); }
+    };
+    void pollStatus(5000);
+    void pollStatus(10000);
+    void pollStatus(20000);
     return Response.json({ success: true, agentId, agentUid, avatarUid, status: "joining" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to start agent";

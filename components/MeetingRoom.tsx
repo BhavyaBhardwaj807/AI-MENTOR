@@ -102,6 +102,18 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
       setAgentStatus("active");
       agentActiveRef.current = true;
       silenceWarnedRef.current = false;
+      window.setTimeout(() => {
+        const c = client.current;
+        if (!agentActiveRef.current || !c) return;
+        const avatarUser = c.remoteUsers.find((u) => u.uid === 999998);
+        if (!avatarUser) {
+          console.warn("[Avatar:timeout] No LiveAvatar video received from UID 999998 after 15 seconds. UID 999998 never appeared as a remote user. Problem is upstream — LiveAvatar is not joining the Agora channel.");
+        } else if (!avatarUser.hasVideo) {
+          console.warn("[Avatar:timeout] No LiveAvatar video received from UID 999998 after 15 seconds. UID 999998 joined but has NOT published video. LiveAvatar joined audio-only or video publish failed.");
+        } else {
+          console.log("[Avatar:timeout] UID 999998 has video — if screen is black, problem is rendering.");
+        }
+      }, 15000);
       // Arm the initial silence timer — resets whenever volume-indicator fires audible levels
       silenceTimerRef.current = window.setTimeout(() => {
         if (!agentActiveRef.current) return;
@@ -134,46 +146,63 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
     sessionRef.current = session;
     console.log("[Agora] Creating client");
     const AVATAR_UID = 999998;
+    const avatarVideoReceivedRef = { current: false };
+
     const handleUserPublished = async (user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") => {
-      console.log(`[Agora:publish] UID: ${user.uid} mediaType: ${mediaType}`);
+      console.log(`[Avatar:publish] UID=${user.uid} mediaType=${mediaType}`);
       if (user.uid === localUidRef.current || session.cancelled) return;
-      console.log(`[Agora:subscribe] UID: ${user.uid} mediaType: ${mediaType} — attempting`);
+      console.log(`[Avatar:subscribe] UID=${user.uid} mediaType=${mediaType} — attempting`);
       try {
         await meetingClient.subscribe(user, mediaType);
-        console.log(`[Agora:subscribe] UID: ${user.uid} mediaType: ${mediaType} — SUCCESS`);
+        console.log(`[Avatar:subscribe] UID=${user.uid} mediaType=${mediaType} — SUCCESS`);
       } catch (err) {
-        console.error(`[Agora:subscribe] UID: ${user.uid} mediaType: ${mediaType} — FAILED`, err);
+        console.error(`[Avatar:subscribe] UID=${user.uid} mediaType=${mediaType} — FAILED`, err);
         return;
       }
       if (session.cancelled || user.uid === localUidRef.current) return;
       if (mediaType === "audio") {
-        console.log(`[Agora:AUDIO] UID: ${user.uid} audioTrack exists: ${!!user.audioTrack}`);
+        console.log(`[Avatar:audio] UID=${user.uid} audioTrack exists: ${!!user.audioTrack}`);
         user.audioTrack?.play();
       }
       if (mediaType === "video") {
-        console.log(`[Agora:VIDEO] UID: ${user.uid} videoTrack exists: ${!!user.videoTrack}`);
+        console.log(`[Avatar:video] UID=${user.uid} videoTrack exists: ${!!user.videoTrack}`);
         if (user.uid === AVATAR_UID) {
+          console.log(`[Avatar:video] UID 999998 video track received`);
+          avatarVideoReceivedRef.current = true;
+          const track = user.videoTrack;
+          const trackId = track ? (typeof (track as { getTrackId?: () => string }).getTrackId === "function" ? (track as { getTrackId: () => string }).getTrackId() : "n/a") : "none";
+          console.log(`[Avatar:video] UID 999998 trackId=${trackId}`);
           const container = avatarVideoRef.current;
-          console.log(`[Agora:VIDEO] #avatar-video ref exists: ${!!container}`);
-          if (user.videoTrack && container) {
-            console.log(`[Agora:VIDEO] Playing video for UID: ${user.uid} into avatarVideoRef`);
-            user.videoTrack.play(container);
+          console.log(`[Avatar:video] avatarVideoRef exists: ${!!container}, dimensions: ${container ? container.offsetWidth + "x" + container.offsetHeight : "n/a"}`);
+          if (track && container) {
+            try {
+              console.log(`[Avatar:video] UID 999998 video.play() called`);
+              track.play(container);
+              console.log(`[Avatar:video] UID 999998 video.play() completed`);
+            } catch (playErr) {
+              console.error(`[Avatar:video] UID 999998 video.play() FAILED`, playErr);
+            }
           } else {
-            console.warn(`[Agora:VIDEO] Cannot play avatar — track: ${!!user.videoTrack}, container: ${!!container}`);
+            console.warn(`[Avatar:video] Cannot play — track: ${!!track}, container: ${!!container}`);
           }
         }
       }
       setRemoteUsers((users) => users.some((item) => item.uid === user.uid) ? users.map((item) => item.uid === user.uid ? user : item) : [...users, user]);
     };
+
     const handleUserUnpublished = (user: IAgoraRTCRemoteUser, mediaType: "audio" | "video") => {
-      console.log(`[Agora:unpublish] UID: ${user.uid} mediaType: ${mediaType}`);
+      console.log(`[Avatar:unpublish] UID=${user.uid} mediaType=${mediaType}`);
       if (mediaType === "video" && user.uid === AVATAR_UID) {
+        console.log(`[Avatar:video] UID 999998 video track stopped/unpublished`);
+        avatarVideoReceivedRef.current = false;
         if (avatarVideoRef.current) avatarVideoRef.current.innerHTML = "";
       }
       setRemoteUsers((users) => users.map((item) => item.uid === user.uid ? { ...item, [mediaType === "audio" ? "audioTrack" : "videoTrack"]: undefined, [mediaType === "audio" ? "hasAudio" : "hasVideo"]: false } : item));
     };
+
     const handleUserLeft = (user: IAgoraRTCRemoteUser) => {
-      console.log(`[Agora:left] UID: ${user.uid}`);
+      console.log(`[Avatar:left] UID=${user.uid}`);
+      if (user.uid === AVATAR_UID) console.log(`[Avatar:video] UID 999998 video track stopped/unpublished`);
       setRemoteUsers((users) => users.filter((item) => item.uid !== user.uid));
     };
     const handleVolumeIndicator = (volumes: { uid: string | number; level: number }[]) => {
@@ -245,7 +274,9 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
         console.log("[AI:mic] Track readyState  :", mediaTrack ? mediaTrack.readyState : "n/a");
         console.log("[AI:mic] Device label      :", mediaTrack ? (mediaTrack.label || "(no label — check browser permissions)") : "n/a");
         console.log("[AI:mic] Published to Agora: true");
-        console.log("[Agora:joined] Remote users at join time:", meetingClient.remoteUsers.map((u) => u.uid));
+        console.log("[Agora:joined] Remote users at join time:", meetingClient.remoteUsers.map((u) => ({
+          uid: u.uid, hasAudio: u.hasAudio, hasVideo: u.hasVideo, videoTrack: !!u.videoTrack
+        })));
         setStatus("Live");
       } catch (joinError) { if (!session.cancelled) { setError(joinError instanceof Error ? joinError.message : "Could not join the meeting."); setStatus("Unable to join"); } }
     }
@@ -271,7 +302,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
         return <ParticipantTile key={user.uid} uid={user.uid} videoTrack={user.videoTrack} hasAudio={user.hasAudio} hasVideo={user.hasVideo} label={isAiParticipant ? "AI Mentor" : undefined} />;
       })}
     </section>
-    <div style={{ position: "fixed", bottom: "80px", right: "16px", width: "240px", height: "135px", background: "#111", borderRadius: "12px", overflow: "hidden", zIndex: 50, border: "2px solid rgba(255,255,255,0.15)", display: agentStatus === "active" ? "block" : "none" }}>
+    <div style={{ position: "fixed", bottom: "80px", right: "16px", width: "240px", height: "135px", background: "#111", borderRadius: "12px", overflow: "hidden", zIndex: 50, border: "2px solid rgba(255,255,255,0.15)", visibility: agentStatus === "active" ? "visible" : "hidden", pointerEvents: agentStatus === "active" ? "auto" : "none" }}>
       <div ref={avatarVideoRef} style={{ width: "100%", height: "100%" }} />
       <span style={{ position: "absolute", bottom: "6px", left: "8px", fontSize: "11px", color: "rgba(255,255,255,0.7)", pointerEvents: "none" }}>AI Mentor</span>
     </div>

@@ -26,6 +26,18 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   const token = agentToken(appId, appCertificate, channelName, agentUid);
   const avatarToken = avatarEnabled ? agentToken(appId, appCertificate, channelName, avatarUid) : null;
 
+  console.log("[Avatar:backend] --- TOKEN VERIFICATION ---");
+  console.log("[Avatar:backend] appId         :", appId);
+  console.log("[Avatar:backend] channelName   :", channelName);
+  console.log("[Avatar:backend] agentUid      :", agentUid, "(type:", typeof agentUid, ")");
+  console.log("[Avatar:backend] avatarUid     :", avatarUid, "(type:", typeof avatarUid, ")");
+  console.log("[Avatar:backend] uids_distinct :", agentUid !== avatarUid);
+  console.log("[Avatar:backend] agent_token   :", token ? token.slice(0, 16) + "...[redacted]" : "MISSING");
+  console.log("[Avatar:backend] avatar_token  :", avatarToken ? avatarToken.slice(0, 16) + "...[redacted]" : "MISSING");
+  console.log("[Avatar:backend] avatar_enabled:", avatarEnabled);
+  console.log("[Avatar:backend] avatar_id     :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "MISSING");
+  console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? liveAvatarApiKey.slice(0, 8) + "...[redacted]" : "MISSING");
+
   const avatarBlock = avatarEnabled ? {
     vendor: "liveavatar",
     enable: true,
@@ -51,15 +63,20 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
     ...(avatarBlock ? { avatar: avatarBlock } : {}),
   };
 
-  console.log("[AI:diag] avatar_enabled:", avatarEnabled);
+  console.log("[Avatar:backend] --- PAYLOAD SUMMARY ---");
+  console.log("[Avatar:backend] enabled       :", avatarEnabled);
+  console.log("[Avatar:backend] avatar_uid    :", avatarUid);
+  console.log("[Avatar:backend] avatar_id     :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "NOT SET");
+  console.log("[Avatar:backend] vendor        : liveavatar");
+  console.log("[Avatar:backend] quality       : high");
+  console.log("[Avatar:backend] avatar_token  :", avatarToken ? "present (" + avatarToken.slice(0, 16) + "...)" : "NOT SET");
+  console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? "present (" + liveAvatarApiKey.slice(0, 8) + "...)" : "NOT SET");
+  console.log("[Avatar:backend] pipeline_id   :", pipelineId);
+  console.log("[Avatar:backend] channel       :", channelName);
 
   const endpoint = `${BASE_URL}/projects/${appId}/join`;
-
-  console.log("[AI:diag] endpoint     :", endpoint);
-  console.log("[AI:diag] channelName  :", channelName);
-  console.log("[AI:diag] pipeline_id  :", pipelineId);
-  console.log("[AI:diag] agent_rtc_uid:", agentUid);
-  console.log("[AI:diag] avatar_enabled:", avatarEnabled);
+  console.log("[Avatar:backend] --- JOIN REQUEST ---");
+  console.log("[Avatar:backend] endpoint      :", endpoint);
 
   const res = await fetch(endpoint, {
     method: "POST",
@@ -68,8 +85,11 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   });
 
   const data = await res.json().catch(() => ({}));
-  console.log("[AI:diag] http_status  :", res.status);
-  console.log("[AI:diag] response_body:", JSON.stringify(data));
+  console.log("[Avatar:backend] --- JOIN RESPONSE ---");
+  console.log("[Avatar:backend] http_status   :", res.status);
+  console.log("[Avatar:backend] agent_id      :", data.agent_id ?? "MISSING");
+  console.log("[Avatar:backend] status        :", data.status ?? "MISSING");
+  console.log("[Avatar:backend] full_response :", JSON.stringify(data));
 
   if (!res.ok) throw new Error(`Agora agent start failed (${res.status}): ${JSON.stringify(data)}`);
 
