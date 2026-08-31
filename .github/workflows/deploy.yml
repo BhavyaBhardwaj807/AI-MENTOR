@@ -8,6 +8,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME_LC: ${{ github.repository }}   # will be lowercased in steps
 
 jobs:
   # ── Job 1: Lint + Type-check ──────────────────────────────────────────────
@@ -19,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -56,11 +57,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GHCR requires lowercase — compute once and reuse
+      - name: Lowercase image name
+        id: image
+        run: echo "name=$(echo '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -77,12 +83,13 @@ jobs:
           build-args: |
             NEXT_PUBLIC_AGORA_AI_AGENT_UID=999999
             NEXT_PUBLIC_APP_URL=https://instructor.sud-o.app
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
+          cache-to:   type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
 
       - name: Image summary
         run: |
           echo "## Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ steps.image.outputs.name }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
 
   # ── Job 3: Deploy to Azure VM via SSH ─────────────────────────────────────
