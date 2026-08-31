@@ -3,11 +3,11 @@ name: Build → Push → Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch:      # allow manual trigger
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # e.g. BhavyaBhardwaj807/AI-MENTOR
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   # ── Job 1: Lint + Type-check ──────────────────────────────────────────────
@@ -38,10 +38,9 @@ jobs:
     needs: quality
     permissions:
       contents: read
-      packages: write         # needed to push to ghcr.io
+      packages: write
 
     outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
       image_digest: ${{ steps.build.outputs.digest }}
 
     steps:
@@ -57,7 +56,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata (tags + labels)
+      - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -75,26 +74,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Public env vars baked into the image at build time
           build-args: |
             NEXT_PUBLIC_AGORA_AI_AGENT_UID=999999
             NEXT_PUBLIC_APP_URL=https://instructor.sud-o.app
-          # Layer cache from GHCR
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to:   type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
       - name: Image summary
         run: |
-          echo "## Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Image Built" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
 
   # ── Job 3: Deploy to Azure VM via SSH ─────────────────────────────────────
   deploy:
     name: Deploy to VM
     runs-on: ubuntu-latest
     needs: build
-    environment: production     # requires manual approval if you enable it
+    # No 'environment' here — avoids hanging on unregistered environment
 
     steps:
       - uses: actions/checkout@v4
@@ -105,50 +101,52 @@ jobs:
           host:     ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key:      ${{ secrets.VM_SSH_KEY }}
-          port:     ${{ secrets.VM_PORT || 22 }}
+          port:     22
           source:   "docker-compose.prod.yml,Caddyfile"
           target:   "/opt/knotic"
-          strip_components: 0
 
       - name: SSH deploy
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          # Pass GITHUB_TOKEN into the SSH session as an env var
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER:  ${{ github.actor }}
+          REPO:       ${{ github.repository }}
         with:
           host:     ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key:      ${{ secrets.VM_SSH_KEY }}
-          port:     ${{ secrets.VM_PORT || 22 }}
+          port:     22
+          envs:     GHCR_TOKEN,GHCR_USER,REPO
           script: |
             set -e
             cd /opt/knotic
 
             echo "── Logging in to GHCR ──"
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
-              -u ${{ github.actor }} --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
             echo "── Pulling latest image ──"
-            export GITHUB_REPOSITORY=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            # Image name must be lowercase
+            REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+            export GITHUB_REPOSITORY="$REPO_LOWER"
             export IMAGE_TAG=latest
             docker compose -f docker-compose.prod.yml pull app
 
-            echo "── Rolling update (zero-downtime) ──"
-            docker compose -f docker-compose.prod.yml up -d \
-              --remove-orphans \
-              --no-build
+            echo "── Starting services ──"
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans --no-build
 
-            echo "── Waiting for health check ──"
-            sleep 15
+            echo "── Waiting for app to be healthy ──"
+            sleep 20
             docker compose -f docker-compose.prod.yml ps
 
             echo "── Pruning old images ──"
             docker image prune -f --filter "until=24h"
 
-            echo "── Deploy complete ──"
-            docker compose -f docker-compose.prod.yml logs app --tail=30
+            echo "── Recent app logs ──"
+            docker compose -f docker-compose.prod.yml logs app --tail=20
 
       - name: Deployment summary
         run: |
-          echo "## Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** production" >> $GITHUB_STEP_SUMMARY
-          echo "**Host:** ${{ secrets.VM_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Deployed" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** https://instructor.sud-o.app" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
