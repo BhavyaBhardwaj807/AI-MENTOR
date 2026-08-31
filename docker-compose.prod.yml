@@ -8,8 +8,6 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.prod
-    environment:
-      - NODE_ENV=production
     ports:
       - "127.0.0.1:3000:3000"   # Only Caddy talks to the app, never exposed directly
     depends_on:

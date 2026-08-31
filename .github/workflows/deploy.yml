@@ -132,8 +132,14 @@ jobs:
             echo "── Logging in to GHCR ──"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
+            echo "── Loading env vars for compose interpolation ──"
+            # Source .env.prod so DB_PASSWORD, REDIS_PASSWORD etc are available
+            # to docker compose variable substitution (${VAR} in compose file)
+            set -a
+            source .env.prod
+            set +a
+
             echo "── Pulling latest image ──"
-            # Image name must be lowercase
             REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
             export GITHUB_REPOSITORY="$REPO_LOWER"
             export IMAGE_TAG=latest
