@@ -1,10 +1,11 @@
 import { startAgent, stopAllAgentsInChannel } from "@/lib/agora-conversational-ai";
 import { agentStore } from "@/lib/agent-store";
 
-const PLACEHOLDERS = ["your_rest_key_here", "your_rest_secret_here", "your_pipeline_id_here"];
+const PLACEHOLDERS = ["your_app_id_here", "your_app_certificate_here", "your_rest_key_here", "your_rest_secret_here"];
 
 export async function POST(request: Request) {
-  const required = ["AGORA_APP_ID", "AGORA_APP_CERTIFICATE", "AGORA_REST_KEY", "AGORA_REST_SECRET", "AGORA_AGENT_PIPELINE_ID", "LIVEAVATAR_API_KEY", "AGORA_AVATAR_ID"];
+  // LiveAvatar and pipeline_id are no longer required — we use inline LLM/TTS config
+  const required = ["AGORA_APP_ID", "AGORA_APP_CERTIFICATE", "AGORA_REST_KEY", "AGORA_REST_SECRET", "LLM_API_KEY"];
   const missing = required.filter((k) => !process.env[k] || PLACEHOLDERS.includes(process.env[k]!));
   if (missing.length) return Response.json({ error: `Configure these env vars in .env.local: ${missing.join(", ")}` }, { status: 500 });
 

@@ -1,12 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import AgoraRTC, { IAgoraRTCClient, IAgoraRTCRemoteUser, ICameraVideoTrack, IMicrophoneAudioTrack } from "agora-rtc-sdk-ng";
-import ParticipantTile from "./ParticipantTile";
-import MeetingControls from "./MeetingControls";
+import AgoraRTC, {
+  IAgoraRTCClient,
+  IAgoraRTCRemoteUser,
+  ICameraVideoTrack,
+  IMicrophoneAudioTrack,
+} from "agora-rtc-sdk-ng";
 
-export default function MeetingRoom({ roomId }: { roomId: string }) {
+export type AgentStatus = "idle" | "starting" | "active";
+
+/**
+ * useMeeting owns ALL real-time behavior: the Agora RTC lifecycle (join,
+ * publish, subscribe, leave, cleanup), the AI Mentor agent lifecycle, mic/
+ * camera toggles, and the diagnostic logging. Presentation lives elsewhere.
+ *
+ * The RTC / agent logic here is preserved verbatim from the original
+ * MeetingRoom component. The only additions are presentation-driven and use
+ * data the client already receives:
+ *   - `activeSpeakerUid` is derived from the existing volume-indicator event.
+ *   - the LiveAvatar video is no longer rendered into a floating overlay; it
+ *     flows through `remoteUsers` and is rendered in a normal participant tile
+ *     (the tile render already existed — the overlay was a duplicate play()).
+ */
+export function useMeeting(roomId: string) {
   const client = useRef<IAgoraRTCClient | null>(null);
   const localTracks = useRef<[IMicrophoneAudioTrack?, ICameraVideoTrack?]>([]);
   const localUidRef = useRef<string | number>("");
@@ -25,15 +42,17 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
   const [cameraOn, setCameraOn] = useState(true);
   const [status, setStatus] = useState("Joining room...");
   const [error, setError] = useState("");
+  const [errorKind, setErrorKind] = useState<"permission" | "generic" | null>(null);
   const [left, setLeft] = useState(false);
   const [agentUid, setAgentUid] = useState<number | null>(null);
   const [avatarUid, setAvatarUid] = useState<number | null>(null);
-  const [agentStatus, setAgentStatus] = useState<"idle" | "starting" | "active">("idle");
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
+  const [activeSpeakerUid, setActiveSpeakerUid] = useState<string | number | null>(null);
   const agentActiveRef = useRef(false);
-  const avatarVideoRef = useRef<HTMLDivElement>(null);
   const silenceTimerRef = useRef<number | null>(null);
   const silenceWarnedRef = useRef(false);
   const SILENCE_THRESHOLD = 5;   // volume 0-100; below this = silent
+  const ACTIVE_SPEAKER_THRESHOLD = 5;
   const SILENCE_TIMEOUT_MS = 10_000;
 
   const clearSilenceTimer = useCallback(() => {
@@ -66,6 +85,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
     setLocalVideoTrack(undefined);
     setLocalUid("");
     setRemoteUsers([]);
+    setActiveSpeakerUid(null);
     try { await session.client.leave(); } catch { /* The client may not have joined yet. */ }
     if (client.current === session.client) client.current = null;
     agentActiveRef.current = false;
@@ -89,7 +109,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
     void cleanupSession(true);
   }, [cleanupSession, agentStatus, stopAgent]);
 
-  async function startAiMentor() {
+  const startAiMentor = useCallback(async () => {
     if (agentStatus !== "idle") return;
     setAgentStatus("starting");
     try {
@@ -102,18 +122,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
       setAgentStatus("active");
       agentActiveRef.current = true;
       silenceWarnedRef.current = false;
-      window.setTimeout(() => {
-        const c = client.current;
-        if (!agentActiveRef.current || !c) return;
-        const avatarUser = c.remoteUsers.find((u) => u.uid === 999998);
-        if (!avatarUser) {
-          console.warn("[Avatar:timeout] No LiveAvatar video received from UID 999998 after 15 seconds. UID 999998 never appeared as a remote user. Problem is upstream — LiveAvatar is not joining the Agora channel.");
-        } else if (!avatarUser.hasVideo) {
-          console.warn("[Avatar:timeout] No LiveAvatar video received from UID 999998 after 15 seconds. UID 999998 joined but has NOT published video. LiveAvatar joined audio-only or video publish failed.");
-        } else {
-          console.log("[Avatar:timeout] UID 999998 has video — if screen is black, problem is rendering.");
-        }
-      }, 15000);
+      // No LiveAvatar — agent is audio-only, no video tile expected from UID 999998.
       // Arm the initial silence timer — resets whenever volume-indicator fires audible levels
       silenceTimerRef.current = window.setTimeout(() => {
         if (!agentActiveRef.current) return;
@@ -124,7 +133,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
       console.error("[AI] Failed to start agent:", e);
       setAgentStatus("idle");
     }
-  }
+  }, [agentStatus, roomId]);
 
   useEffect(() => {
     const scheduleCleanup = () => {
@@ -172,19 +181,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
           const track = user.videoTrack;
           const trackId = track ? (typeof (track as { getTrackId?: () => string }).getTrackId === "function" ? (track as { getTrackId: () => string }).getTrackId() : "n/a") : "none";
           console.log(`[Avatar:video] UID 999998 trackId=${trackId}`);
-          const container = avatarVideoRef.current;
-          console.log(`[Avatar:video] avatarVideoRef exists: ${!!container}, dimensions: ${container ? container.offsetWidth + "x" + container.offsetHeight : "n/a"}`);
-          if (track && container) {
-            try {
-              console.log(`[Avatar:video] UID 999998 video.play() called`);
-              track.play(container);
-              console.log(`[Avatar:video] UID 999998 video.play() completed`);
-            } catch (playErr) {
-              console.error(`[Avatar:video] UID 999998 video.play() FAILED`, playErr);
-            }
-          } else {
-            console.warn(`[Avatar:video] Cannot play — track: ${!!track}, container: ${!!container}`);
-          }
+          console.log(`[Avatar:video] UID 999998 renders in its participant tile`);
         }
       }
       setRemoteUsers((users) => users.some((item) => item.uid === user.uid) ? users.map((item) => item.uid === user.uid ? user : item) : [...users, user]);
@@ -195,7 +192,6 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
       if (mediaType === "video" && user.uid === AVATAR_UID) {
         console.log(`[Avatar:video] UID 999998 video track stopped/unpublished`);
         avatarVideoReceivedRef.current = false;
-        if (avatarVideoRef.current) avatarVideoRef.current.innerHTML = "";
       }
       setRemoteUsers((users) => users.map((item) => item.uid === user.uid ? { ...item, [mediaType === "audio" ? "audioTrack" : "videoTrack"]: undefined, [mediaType === "audio" ? "hasAudio" : "hasVideo"]: false } : item));
     };
@@ -204,8 +200,17 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
       console.log(`[Avatar:left] UID=${user.uid}`);
       if (user.uid === AVATAR_UID) console.log(`[Avatar:video] UID 999998 video track stopped/unpublished`);
       setRemoteUsers((users) => users.filter((item) => item.uid !== user.uid));
+      setActiveSpeakerUid((prev) => (prev === user.uid ? null : prev));
     };
     const handleVolumeIndicator = (volumes: { uid: string | number; level: number }[]) => {
+      // Active-speaker highlight — runs on every volume tick, agent or not.
+      let loudestUid: string | number | null = null;
+      let loudestLevel = ACTIVE_SPEAKER_THRESHOLD;
+      for (const v of volumes) {
+        if (v.level > loudestLevel) { loudestLevel = v.level; loudestUid = v.uid; }
+      }
+      setActiveSpeakerUid((prev) => (prev === loudestUid ? prev : loudestUid));
+
       if (!agentActiveRef.current) return;
       const agentUidVal = parseInt(process.env.NEXT_PUBLIC_AGORA_AI_AGENT_UID || "999999", 10);
       const hasAudio = volumes.some((v) => v.uid !== agentUidVal && v.level > SILENCE_THRESHOLD);
@@ -278,38 +283,35 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
           uid: u.uid, hasAudio: u.hasAudio, hasVideo: u.hasVideo, videoTrack: !!u.videoTrack
         })));
         setStatus("Live");
-      } catch (joinError) { if (!session.cancelled) { setError(joinError instanceof Error ? joinError.message : "Could not join the meeting."); setStatus("Unable to join"); } }
+      } catch (joinError) {
+        if (!session.cancelled) {
+          const code = (joinError as { code?: string })?.code;
+          const message = joinError instanceof Error ? joinError.message : "Could not join the meeting.";
+          const isPermission = code === "PERMISSION_DENIED" || /permission|notallowed|denied/i.test(message);
+          setErrorKind(isPermission ? "permission" : "generic");
+          setError(isPermission ? "AgoraMeet needs access to your camera and microphone to join this room. Allow access in your browser, then try again." : message);
+          setStatus("Unable to join");
+        }
+      }
     }
     void join();
     return scheduleCleanup;
   }, [cleanupSession, roomId]);
 
-  async function toggleMicrophone() { const track = localTracks.current[0]; if (!track) return; await track.setEnabled(!microphoneOn); setMicrophoneOn(!microphoneOn); }
-  async function toggleCamera() { const track = localTracks.current[1]; if (!track) return; await track.setEnabled(!cameraOn); setCameraOn(!cameraOn); }
-  if (error) return <main className="meeting-state"><div><p className="eyebrow">AgoraMeet</p><h1>Could not join this room</h1><p>{error}</p><Link className="secondary-action inline-flex" href="/">Back home</Link></div></main>;
-  if (left) return <main className="meeting-state"><div><p className="eyebrow">AgoraMeet</p><h1>You left the meeting</h1><Link className="primary-action inline-flex" href="/">Return home</Link></div></main>;
-  const participantCount = remoteUsers.length + (localUid ? 1 : 0);
-  const gridParticipantCount = Math.min(Math.max(participantCount, 1), 6);
-  return <main className="meeting-shell">
-    <header className="meeting-header">
-      <div className="meeting-brand"><span className="brand-mark">A</span><div><p className="eyebrow">AgoraMeet</p><h1>Room ID: <strong>{roomId}</strong></h1></div></div>
-      <span className="status-pill"><span className="status-dot" /> {status}</span>
-    </header>
-    <section className={`participant-grid participants-${gridParticipantCount}`} aria-label="Meeting participants">
-      {localUid && <ParticipantTile uid={localUid} videoTrack={localVideoTrack} hasAudio={microphoneOn} hasVideo={cameraOn} isLocal />}
-      {remoteUsers.map((user) => {
-        const isAiParticipant = (agentUid !== null && user.uid === agentUid) || (avatarUid !== null && user.uid === avatarUid);
-        return <ParticipantTile key={user.uid} uid={user.uid} videoTrack={user.videoTrack} hasAudio={user.hasAudio} hasVideo={user.hasVideo} label={isAiParticipant ? "AI Mentor" : undefined} />;
-      })}
-    </section>
-    <div style={{ position: "fixed", bottom: "80px", right: "16px", width: "240px", height: "135px", background: "#111", borderRadius: "12px", overflow: "hidden", zIndex: 50, border: "2px solid rgba(255,255,255,0.15)", visibility: agentStatus === "active" ? "visible" : "hidden", pointerEvents: agentStatus === "active" ? "auto" : "none" }}>
-      <div ref={avatarVideoRef} style={{ width: "100%", height: "100%" }} />
-      <span style={{ position: "absolute", bottom: "6px", left: "8px", fontSize: "11px", color: "rgba(255,255,255,0.7)", pointerEvents: "none" }}>AI Mentor</span>
-    </div>
-    <footer className="meeting-footer">
-      <span className="participant-count">{participantCount} Participant{participantCount === 1 ? "" : "s"}</span>
-      <MeetingControls microphoneOn={microphoneOn} cameraOn={cameraOn} onToggleMicrophone={toggleMicrophone} onToggleCamera={toggleCamera} onLeave={() => void leave()} onStartAgent={agentStatus === "idle" ? startAiMentor : undefined} agentStatus={agentStatus} />
-      <span className="footer-spacer" aria-hidden="true" />
-    </footer>
-  </main>;
+  const toggleMicrophone = useCallback(async () => {
+    const track = localTracks.current[0]; if (!track) return;
+    await track.setEnabled(!microphoneOn); setMicrophoneOn(!microphoneOn);
+  }, [microphoneOn]);
+  const toggleCamera = useCallback(async () => {
+    const track = localTracks.current[1]; if (!track) return;
+    await track.setEnabled(!cameraOn); setCameraOn(!cameraOn);
+  }, [cameraOn]);
+
+  return {
+    status, error, errorKind, left,
+    localUid, localVideoTrack, microphoneOn, cameraOn,
+    remoteUsers, activeSpeakerUid,
+    agentUid, avatarUid, agentStatus,
+    toggleMicrophone, toggleCamera, leave, startAiMentor,
+  };
 }

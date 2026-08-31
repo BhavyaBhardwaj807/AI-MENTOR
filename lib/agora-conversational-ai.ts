@@ -7,8 +7,21 @@ function basicAuth(key: string, secret: string) {
   return "Basic " + Buffer.from(`${key}:${secret}`).toString("base64");
 }
 
-function agentToken(appId: string, appCertificate: string, channelName: string, uid: number) {
-  return RtcTokenBuilder.buildTokenWithUid(appId, appCertificate, channelName, uid, RtcRole.PUBLISHER, TOKEN_TTL, TOKEN_TTL);
+function agentToken(
+  appId: string,
+  appCertificate: string,
+  channelName: string,
+  uid: number,
+) {
+  return RtcTokenBuilder.buildTokenWithUid(
+    appId,
+    appCertificate,
+    channelName,
+    uid,
+    RtcRole.PUBLISHER,
+    TOKEN_TTL,
+    TOKEN_TTL,
+  );
 }
 
 export async function startAgent(channelName: string): Promise<{ agentId: string }> {
@@ -16,82 +29,113 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   const appCertificate = process.env.AGORA_APP_CERTIFICATE!;
   const restKey = process.env.AGORA_REST_KEY!;
   const restSecret = process.env.AGORA_REST_SECRET!;
-  const pipelineId = process.env.AGORA_AGENT_PIPELINE_ID!;
   const agentUid = parseInt(process.env.AGORA_AI_AGENT_UID || "999999", 10);
-  const avatarUid = parseInt(process.env.AGORA_AVATAR_UID || "999998", 10);
-  const avatarId = process.env.AGORA_AVATAR_ID;
-  const liveAvatarApiKey = process.env.LIVEAVATAR_API_KEY;
-  const avatarEnabled = !!(avatarId && liveAvatarApiKey);
+
+  // LLM — routed through our Brain Server
+  // The brain server speaks the OpenAI Chat Completions SSE protocol,
+  // so Agora treats it identically to a direct LLM provider.
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const llmUrl = `${appUrl}/api/brain/chat`;
+  const llmApiKey = process.env.BRAIN_SERVER_SECRET || process.env.LLM_API_KEY || "";
+  const llmModel = process.env.LLM_MODEL || "gpt-4o-mini";
+
+  // TTS — Agora managed mode (MiniMax) — no TTS API key required
+  // Falls back to BYOK OpenAI TTS if TTS_API_KEY is set in env
+  const ttsApiKey = process.env.TTS_API_KEY;
+  const useByokTts = Boolean(ttsApiKey);
 
   const token = agentToken(appId, appCertificate, channelName, agentUid);
-  const avatarToken = avatarEnabled ? agentToken(appId, appCertificate, channelName, avatarUid) : null;
 
-  console.log("[Avatar:backend] --- TOKEN VERIFICATION ---");
-  console.log("[Avatar:backend] appId         :", appId);
-  console.log("[Avatar:backend] channelName   :", channelName);
-  console.log("[Avatar:backend] agentUid      :", agentUid, "(type:", typeof agentUid, ")");
-  console.log("[Avatar:backend] avatarUid     :", avatarUid, "(type:", typeof avatarUid, ")");
-  console.log("[Avatar:backend] uids_distinct :", agentUid !== avatarUid);
-  console.log("[Avatar:backend] agent_token   :", token ? token.slice(0, 16) + "...[redacted]" : "MISSING");
-  console.log("[Avatar:backend] avatar_token  :", avatarToken ? avatarToken.slice(0, 16) + "...[redacted]" : "MISSING");
-  console.log("[Avatar:backend] avatar_enabled:", avatarEnabled);
-  console.log("[Avatar:backend] avatar_id     :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "MISSING");
-  console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? liveAvatarApiKey.slice(0, 8) + "...[redacted]" : "MISSING");
+  console.log("[Agent:backend] --- CONFIG ---");
+  console.log("[Agent:backend] appId        :", appId);
+  console.log("[Agent:backend] channelName  :", channelName);
+  console.log("[Agent:backend] agentUid     :", agentUid);
+  console.log("[Agent:backend] llmUrl       :", llmUrl);
+  console.log("[Agent:backend] llmModel     :", llmModel);
+  console.log("[Agent:backend] tts mode     :", useByokTts ? "byok (openai)" : "managed (minimax)");
+  console.log("[Agent:backend] llmApiKey    :", llmApiKey ? llmApiKey.slice(0, 8) + "...[redacted]" : "MISSING");
 
-  const avatarBlock = avatarEnabled ? {
-    vendor: "liveavatar",
-    enable: true,
-    params: {
-      agora_token: avatarToken,
-      agora_uid: String(avatarUid),
-      quality: "high",
-      avatar_id: avatarId,
-      api_key: liveAvatarApiKey,
-    },
-  } : undefined;
+  // TTS block — managed (free, no key) or BYOK if TTS_API_KEY is set
+  const ttsBlock = useByokTts
+    ? {
+        vendor: "openai" as const,
+        params: {
+          api_key: ttsApiKey,
+          model: process.env.TTS_MODEL || "tts-1",
+          voice: process.env.TTS_VOICE || "alloy",
+        },
+      }
+    : {
+        // Agora managed MiniMax TTS — no API key needed, covered by Agora's plan
+        credential_mode: "managed" as const,
+        vendor: "minimax" as const,
+        params: {
+          url: "wss://api.minimax.io/ws/v1/t2a_v2",
+          model: "speech-2.6-turbo",
+          voice_setting: {
+            voice_id: "English_captivating_female1",
+          },
+        },
+      };
 
   const body = {
     name: `mentor-${Date.now()}`,
-    pipeline_id: pipelineId,
     properties: {
       channel: channelName,
       token,
       agent_rtc_uid: String(agentUid),
       remote_rtc_uids: ["0"],
       idle_timeout: 120,
+
+      // ASR — Agora ARES, free, no key needed
+      asr: {
+        vendor: "ares",
+        language: "en-US",
+      },
+
+      // LLM — your OpenAI-compatible provider
+      llm: {
+        url: llmUrl,
+        api_key: llmApiKey,
+        system_messages: [
+          {
+            role: "system",
+            content:
+              "You are an AI Mentor in a live classroom. You are a concise, helpful teaching assistant. Keep responses to 1–3 sentences unless the user asks for more. Never interrupt the teacher.",
+          },
+        ],
+        greeting_message: "Hi, I'm your AI Mentor. Ask me anything about the lesson.",
+        failure_message: "Sorry, I'm having trouble responding right now.",
+        params: { model: llmModel },
+        max_history: 20,
+      },
+
+      // TTS
+      tts: ttsBlock,
     },
-    ...(avatarBlock ? { avatar: avatarBlock } : {}),
   };
 
-  console.log("[Avatar:backend] --- PAYLOAD SUMMARY ---");
-  console.log("[Avatar:backend] enabled       :", avatarEnabled);
-  console.log("[Avatar:backend] avatar_uid    :", avatarUid);
-  console.log("[Avatar:backend] avatar_id     :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "NOT SET");
-  console.log("[Avatar:backend] vendor        : liveavatar");
-  console.log("[Avatar:backend] quality       : high");
-  console.log("[Avatar:backend] avatar_token  :", avatarToken ? "present (" + avatarToken.slice(0, 16) + "...)" : "NOT SET");
-  console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? "present (" + liveAvatarApiKey.slice(0, 8) + "...)" : "NOT SET");
-  console.log("[Avatar:backend] pipeline_id   :", pipelineId);
-  console.log("[Avatar:backend] channel       :", channelName);
-
   const endpoint = `${BASE_URL}/projects/${appId}/join`;
-  console.log("[Avatar:backend] --- JOIN REQUEST ---");
-  console.log("[Avatar:backend] endpoint      :", endpoint);
+  console.log("[Agent:backend] POST", endpoint);
 
   const res = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: basicAuth(restKey, restSecret) },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: basicAuth(restKey, restSecret),
+    },
     body: JSON.stringify(body),
   });
 
   const data = await res.json().catch(() => ({}));
-  console.log("[Avatar:backend] --- JOIN RESPONSE ---");
-  console.log("[Avatar:backend] http_status   :", res.status);
-  console.log("[Avatar:backend] agent_id      :", data.agent_id ?? "MISSING");
-  console.log("[Avatar:backend] status        :", data.status ?? "MISSING");
-  console.log("[Avatar:backend] full_response :", JSON.stringify(data));
+  console.log("[Agent:backend] http_status :", res.status);
+  console.log("[Agent:backend] agent_id    :", data.agent_id ?? "MISSING");
+  console.log("[Agent:backend] status      :", data.status ?? "MISSING");
+  console.log("[Agent:backend] response    :", JSON.stringify(data));
 
-  if (!res.ok) throw new Error(`Agora agent start failed (${res.status}): ${JSON.stringify(data)}`);
+  if (!res.ok) {
+    throw new Error(`Agora agent start failed (${res.status}): ${JSON.stringify(data)}`);
+  }
 
   return { agentId: data.agent_id };
 }
@@ -100,14 +144,23 @@ export async function stopAgentById(agentId: string): Promise<void> {
   const appId = process.env.AGORA_APP_ID!;
   const restKey = process.env.AGORA_REST_KEY!;
   const restSecret = process.env.AGORA_REST_SECRET!;
-  const res = await fetch(`${BASE_URL}/projects/${appId}/agents/${agentId}/leave`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: basicAuth(restKey, restSecret) },
-    body: "{}",
-  });
+  const res = await fetch(
+    `${BASE_URL}/projects/${appId}/agents/${agentId}/leave`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: basicAuth(restKey, restSecret),
+      },
+      body: "{}",
+    },
+  );
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    console.warn(`[AI] stopAgentById ${agentId} failed (${res.status}):`, JSON.stringify(data));
+    console.warn(
+      `[AI] stopAgentById ${agentId} failed (${res.status}):`,
+      JSON.stringify(data),
+    );
   }
 }
 
@@ -115,13 +168,18 @@ export async function stopAllAgentsInChannel(channelName: string): Promise<void>
   const appId = process.env.AGORA_APP_ID!;
   const restKey = process.env.AGORA_REST_KEY!;
   const restSecret = process.env.AGORA_REST_SECRET!;
-  const res = await fetch(`${BASE_URL}/projects/${appId}/agents?channel=${encodeURIComponent(channelName)}`, {
-    method: "GET",
-    headers: { Authorization: basicAuth(restKey, restSecret) },
-  });
-  if (!res.ok) { console.warn("[AI] Could not list agents for channel", channelName, res.status); return; }
+  const res = await fetch(
+    `${BASE_URL}/projects/${appId}/agents?channel=${encodeURIComponent(channelName)}`,
+    {
+      method: "GET",
+      headers: { Authorization: basicAuth(restKey, restSecret) },
+    },
+  );
+  if (!res.ok) {
+    console.warn("[AI] Could not list agents for channel", channelName, res.status);
+    return;
+  }
   const data = await res.json().catch(() => ({}));
-  // Agora may return agents under different keys depending on API version
   const raw = data.agents ?? data.data ?? data.list ?? data;
   const agents: { agent_id: string; status?: string }[] = Array.isArray(raw) ? raw : [];
   console.log("[AI] list agents raw response:", JSON.stringify(data));

@@ -1,0 +1,40 @@
+# Caddyfile
+# Auto TLS via Let's Encrypt. No config needed.
+
+instructor.sud-o.app {
+
+    # Brain server SSE — disable buffering
+    @sse path /api/brain/chat
+    handle @sse {
+        reverse_proxy app:3000 {
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # Everything else
+    reverse_proxy app:3000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options    nosniff
+        X-Frame-Options           DENY
+        X-XSS-Protection          "1; mode=block"
+        Referrer-Policy           strict-origin-when-cross-origin
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    encode gzip
+
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 20mb
+            roll_keep 5
+        }
+        format json
+    }
+}

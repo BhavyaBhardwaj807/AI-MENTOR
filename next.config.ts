@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Required for Docker standalone build
+  output: "standalone",
+
+  // Suppress verbose logs for pino transport in edge/server
+  serverExternalPackages: ["pino", "pino-pretty"],
 };
 
 export default nextConfig;
