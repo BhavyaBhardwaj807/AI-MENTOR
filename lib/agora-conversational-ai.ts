@@ -39,14 +39,16 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? liveAvatarApiKey.slice(0, 8) + "...[redacted]" : "MISSING");
 
   const avatarBlock = avatarEnabled ? {
-    vendor: "liveavatar",
     enable: true,
+    vendor: "liveavatar",
     params: {
-      agora_token: avatarToken,
-      agora_uid: String(avatarUid),
-      quality: "high",
-      avatar_id: avatarId,
       api_key: liveAvatarApiKey,
+      avatar_id: avatarId,
+      quality: "medium",
+      agora_uid: String(avatarUid),
+      agora_token: avatarToken,
+      disable_idle_timeout: false,
+      activity_idle_timeout: 60,
     },
   } : undefined;
 
@@ -63,16 +65,17 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
     ...(avatarBlock ? { avatar: avatarBlock } : {}),
   };
 
-  console.log("[Avatar:backend] --- PAYLOAD SUMMARY ---");
-  console.log("[Avatar:backend] enabled       :", avatarEnabled);
-  console.log("[Avatar:backend] avatar_uid    :", avatarUid);
-  console.log("[Avatar:backend] avatar_id     :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "NOT SET");
-  console.log("[Avatar:backend] vendor        : liveavatar");
-  console.log("[Avatar:backend] quality       : high");
-  console.log("[Avatar:backend] avatar_token  :", avatarToken ? "present (" + avatarToken.slice(0, 16) + "...)" : "NOT SET");
-  console.log("[Avatar:backend] api_key       :", liveAvatarApiKey ? "present (" + liveAvatarApiKey.slice(0, 8) + "...)" : "NOT SET");
-  console.log("[Avatar:backend] pipeline_id   :", pipelineId);
-  console.log("[Avatar:backend] channel       :", channelName);
+  console.log("[Avatar:backend] --- PAYLOAD VERIFICATION ---");
+  console.log("[Avatar:backend] channelName    :", channelName);
+  console.log("[Avatar:backend] agentUid       :", agentUid);
+  console.log("[Avatar:backend] avatarUid      :", avatarUid);
+  console.log("[Avatar:backend] uids_distinct  :", agentUid !== avatarUid);
+  console.log("[Avatar:backend] avatar_enabled :", avatarEnabled);
+  console.log("[Avatar:backend] avatar_id      :", avatarId ? avatarId.slice(0, 8) + "...[redacted]" : "MISSING");
+  console.log("[Avatar:backend] quality        : medium");
+  console.log("[Avatar:backend] avatar_token   :", avatarToken ? "present for uid=" + avatarUid : "MISSING");
+  console.log("[Avatar:backend] api_key        :", liveAvatarApiKey ? "present (" + liveAvatarApiKey.slice(0, 4) + "...[redacted])" : "MISSING");
+  console.log("[Avatar:backend] avatar_at_top  : true");
 
   const endpoint = `${BASE_URL}/projects/${appId}/join`;
   console.log("[Avatar:backend] --- JOIN REQUEST ---");
