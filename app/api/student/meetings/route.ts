@@ -6,6 +6,7 @@ export async function GET() {
   if (!auth.ok) return auth.error;
 
   try {
+    await pool.query("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS is_cancelled boolean NOT NULL DEFAULT FALSE");
     const result = await pool.query(
       `SELECT
          m.id,
@@ -23,6 +24,7 @@ export async function GET() {
        JOIN users t     ON t.id  = m.teacher_id
        WHERE ms.student_id = $1
          AND t.role = 'teacher'
+         AND COALESCE(m.is_cancelled, FALSE) = FALSE
        ORDER BY m.scheduled_at ASC`,
       [auth.payload.userId]
     );

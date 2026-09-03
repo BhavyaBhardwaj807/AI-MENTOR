@@ -30,6 +30,7 @@ export default function TeacherMeetings() {
   const [fStudents, setFStudents] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -93,8 +94,17 @@ export default function TeacherMeetings() {
   if (authLoading || !user) return null;
 
   const now = new Date();
-  const upcoming = meetings.filter((m) => new Date(m.scheduled_at) >= now);
-  const past = meetings.filter((m) => new Date(m.scheduled_at) < now);
+  const upcoming = meetings.filter((m) => new Date(m.scheduled_at).getTime() > now.getTime());
+  const past = meetings.filter((m) => new Date(m.scheduled_at).getTime() <= now.getTime());
+
+  async function cancelMeeting(id: string) {
+    if (!window.confirm("Remove this meeting from the schedule?")) return;
+    setActionError("");
+    const response = await fetch(`/api/teacher/meetings/${id}`, { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) { setActionError(data.error ?? "Failed to remove meeting"); return; }
+    setMeetings((prev) => prev.filter((meeting) => meeting.id !== id));
+  }
 
   return (
     <div className="flex flex-col w-full space-y-6">
@@ -161,7 +171,7 @@ export default function TeacherMeetings() {
                   <tr><td colSpan={5} className="py-12 text-center text-[14px] text-outline">No meetings yet. Create your first meeting.</td></tr>
                 ) : (
                   meetings.map((m) => {
-                    const isUpcoming = new Date(m.scheduled_at) >= now;
+                    const isUpcoming = new Date(m.scheduled_at).getTime() > now.getTime();
                     const isToday = new Date(m.scheduled_at).toDateString() === now.toDateString();
                     return (
                       <tr key={m.id} className="hover:bg-surface-container/50 transition-colors border-t border-surface-container-lowest">
@@ -202,9 +212,8 @@ export default function TeacherMeetings() {
                             >
                               Start Meeting
                             </Link>
-                          ) : (
-                            <span className="text-outline text-[13px]">Ended</span>
-                          )}
+                          ) : <span className="text-outline text-[13px]">Ended</span>}
+                          <button type="button" onClick={() => cancelMeeting(m.id)} title="Remove from schedule" className="ml-3 text-outline hover:text-ag-error transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
                         </td>
                       </tr>
                     );
@@ -218,6 +227,7 @@ export default function TeacherMeetings() {
           </div>
         </div>
       )}
+      {actionError && <p className="text-[13px] text-ag-error">{actionError}</p>}
 
       {/* Create Meeting Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>

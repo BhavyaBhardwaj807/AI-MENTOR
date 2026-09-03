@@ -13,6 +13,7 @@ const navItems = [
   { path: "/teacher/meetings", icon: "video_camera_front", label: "Meetings" },
   { path: "/teacher/assignments", icon: "assignment", label: "Assignments" },
   { path: "/teacher/students", icon: "school", label: "Students" },
+  { path: "/teacher/connect", icon: "forum", label: "Messages" },
 ];
 
 export function TeacherSidebar({ userName }: Props) {

@@ -29,8 +29,8 @@ export default function StudentMeetings() {
   if (authLoading || !user) return null;
 
   const now = new Date();
-  const upcoming = meetings.filter((m) => new Date(m.scheduled_at) >= now);
-  const past = meetings.filter((m) => new Date(m.scheduled_at) < now);
+  const upcoming = meetings.filter((m) => new Date(m.scheduled_at).getTime() > now.getTime());
+  const past = meetings.filter((m) => new Date(m.scheduled_at).getTime() <= now.getTime());
 
   const filtered = (list: Meeting[]) =>
     list.filter((m) =>

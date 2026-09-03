@@ -89,7 +89,7 @@ export async function POST(request: Request) {
        JOIN users u ON u.id = ts.student_id
        WHERE ts.teacher_id = $1
          AND u.role = 'student'
-         AND ts.student_id = ANY($2::int[])`,
+         AND ts.student_id = ANY($2::uuid[])`,
       [auth.payload.userId, uniqueStudentIds]
     );
     if (studentCheck.rowCount !== uniqueStudentIds.length)
@@ -140,3 +140,4 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+

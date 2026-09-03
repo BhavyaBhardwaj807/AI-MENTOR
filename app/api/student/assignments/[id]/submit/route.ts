@@ -1,7 +1,16 @@
 import pool from "@/lib/db";
 import { requireRole } from "@/lib/api-auth";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const MAX_CONTENT_LENGTH = 10_000;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_FILE_TYPES = new Set([
+  "application/pdf", "text/plain", "image/png", "image/jpeg",
+  "application/zip", "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const ALLOWED_EXTENSIONS = new Set([".pdf", ".txt", ".png", ".jpg", ".jpeg", ".zip", ".doc", ".docx"]);
 
 export async function POST(
   request: Request,
@@ -17,17 +26,35 @@ export async function POST(
   if (!uuidRe.test(assignmentId))
     return Response.json({ error: "Invalid assignment ID" }, { status: 400 });
 
-  let body: { content?: unknown };
-  try { body = await request.json(); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
+  let rawContent: FormDataEntryValue | null = null;
+  let uploaded: FormDataEntryValue | null = null;
+  try {
+    if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+      const form = await request.formData();
+      rawContent = form.get("content");
+      uploaded = form.get("file");
+    } else {
+      const body = await request.json() as { content?: unknown };
+      rawContent = typeof body.content === "string" ? body.content : null;
+    }
+  } catch { return Response.json({ error: "Invalid submission data" }, { status: 400 }); }
 
-  const rawContent = body.content;
-  if (!rawContent || typeof rawContent !== "string" || rawContent.trim().length === 0)
-    return Response.json({ error: "content is required and must be a non-empty string" }, { status: 400 });
-  if (rawContent.trim().length > MAX_CONTENT_LENGTH)
+  if (rawContent !== null && typeof rawContent !== "string")
+    return Response.json({ error: "content must be a string" }, { status: 400 });
+  if (typeof rawContent === "string" && rawContent.trim().length > MAX_CONTENT_LENGTH)
     return Response.json({ error: `content must not exceed ${MAX_CONTENT_LENGTH} characters` }, { status: 400 });
 
-  const content = rawContent.trim();
+  const content = typeof rawContent === "string" ? rawContent.trim() : "";
+  const file = uploaded instanceof File && uploaded.size > 0 ? uploaded : null;
+  if (!content && !file) return Response.json({ error: "Add an answer or a file" }, { status: 400 });
+  if (file) {
+    const extension = path.extname(file.name).toLowerCase();
+    if (file.size > MAX_FILE_SIZE) return Response.json({ error: "File must be 10 MB or smaller" }, { status: 400 });
+    if (!ALLOWED_FILE_TYPES.has(file.type) || !ALLOWED_EXTENSIONS.has(extension))
+      return Response.json({ error: "Unsupported file type" }, { status: 400 });
+  }
   const studentId = auth.payload.userId;
+  let filePath: string | null = null;
 
   try {
     // Verify assignment exists AND is assigned to this student
@@ -50,12 +77,25 @@ export async function POST(
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Insert submission; rely on UNIQUE(assignment_id, student_id) to catch duplicates
+    await pool.query(`
+      ALTER TABLE assignment_submissions ADD COLUMN IF NOT EXISTS file_name text;
+      ALTER TABLE assignment_submissions ADD COLUMN IF NOT EXISTS file_path text;
+      ALTER TABLE assignment_submissions ADD COLUMN IF NOT EXISTS file_type text;
+      ALTER TABLE assignment_submissions ADD COLUMN IF NOT EXISTS file_size integer;
+    `);
+
+    if (file) {
+      const uploadDirectory = path.join(process.cwd(), "private-uploads", "submissions");
+      await mkdir(uploadDirectory, { recursive: true });
+      filePath = path.join(uploadDirectory, `${crypto.randomUUID()}${path.extname(file.name).toLowerCase()}`);
+      await writeFile(filePath, Buffer.from(await file.arrayBuffer()), { flag: "wx" });
+    }
+
     const result = await pool.query(
-      `INSERT INTO assignment_submissions (assignment_id, student_id, content, status, submitted_at)
-       VALUES ($1, $2, $3, 'submitted', NOW())
+      `INSERT INTO assignment_submissions (assignment_id, student_id, content, status, submitted_at, file_name, file_path, file_type, file_size)
+       VALUES ($1, $2, $3, 'submitted', NOW(), $4, $5, $6, $7)
        RETURNING id, assignment_id, status, submitted_at`,
-      [assignmentId, studentId, content]
+      [assignmentId, studentId, content || null, file?.name ?? null, filePath, file?.type ?? null, file?.size ?? null]
     );
 
     const row = result.rows[0];
@@ -65,6 +105,7 @@ export async function POST(
         assignment_id: row.assignment_id,
         submitted_at: row.submitted_at,
         status: row.status,
+        file_name: file?.name ?? null,
       },
       { status: 201 }
     );
@@ -77,6 +118,7 @@ export async function POST(
     ) {
       return Response.json({ error: "Assignment already submitted" }, { status: 409 });
     }
+    if (filePath) await unlink(filePath).catch(() => {});
     console.error("[api/student/assignments/[id]/submit POST] error:", err);
     return Response.json({ error: "Failed to submit assignment" }, { status: 500 });
   }

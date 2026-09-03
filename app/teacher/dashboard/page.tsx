@@ -42,7 +42,7 @@ export default function TeacherDashboard() {
   if (authLoading || !user) return null;
 
   const now = new Date();
-  const upcoming = meetings.filter((m) => new Date(m.scheduled_at) >= now);
+  const upcoming = meetings.filter((m) => new Date(m.scheduled_at).getTime() > now.getTime());
   const totalPending = assignments.reduce((sum, a) => sum + a.submission_stats.pending, 0);
 
   return (

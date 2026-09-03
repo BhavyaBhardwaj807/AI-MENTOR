@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,8 @@ export default function AssignmentDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -41,14 +43,16 @@ export default function AssignmentDetail() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!content.trim()) { setSubmitError("Content is required"); return; }
+    if (!content.trim() && !file) { setSubmitError("Add an answer or a file"); return; }
     setSubmitError("");
     setSubmitting(true);
     try {
+      const form = new FormData();
+      if (content.trim()) form.append("content", content.trim());
+      if (file) form.append("file", file);
       const res = await fetch(`/api/student/assignments/${id}/submit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content.trim() }),
+        body: form,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -57,6 +61,7 @@ export default function AssignmentDetail() {
         return;
       }
       setSubmitted(true);
+      setFile(null);
       setAssignment((prev) => prev ? { ...prev, status: "submitted", submitted_at: data.submitted_at } : prev);
     } catch {
       setSubmitError("Network error. Please try again.");
@@ -215,6 +220,13 @@ export default function AssignmentDetail() {
                   <div className="text-right text-[11px] text-outline">{content.length} / 10,000</div>
                 </div>
 
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[11px] text-on-surface-variant uppercase tracking-wider">Attachment (optional)</label>
+                    <input ref={fileInputRef} type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,.zip,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="hidden" />
+                    {file ? <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-container-low p-3 text-[13px] text-on-surface"><span className="truncate">{file.name}</span><button type="button" onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-ag-error hover:underline shrink-0">Remove</button></div> : <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-2.5 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant text-[13px] flex items-center justify-center gap-2"><span className="material-symbols-outlined text-base">attach_file</span>Upload file</button>}
+                    <span className="text-[11px] text-outline">PDF, DOC, DOCX, TXT, PNG, JPG, or ZIP up to 10 MB</span>
+                  </div>
+
                 {submitError && (
                   <p className="text-[13px] text-ag-error bg-ag-error-container/20 border border-ag-error/30 rounded-lg px-3 py-2">
                     {submitError}
@@ -223,7 +235,7 @@ export default function AssignmentDetail() {
 
                 <button
                   type="submit"
-                  disabled={submitting || !content.trim()}
+                  disabled={submitting || (!content.trim() && !file)}
                   className="w-full py-3 px-4 rounded-lg bg-ag-primary hover:bg-ag-primary-container text-ag-on-primary text-[16px] font-medium transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                 >
                   {submitting ? (

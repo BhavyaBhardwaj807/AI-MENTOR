@@ -40,7 +40,8 @@ export default function StudentDashboard() {
 
   const pending = assignments.filter((a) => a.status === "pending");
   const submitted = assignments.filter((a) => a.status === "submitted");
-  const upcoming = meetings.slice(0, 3);
+  const now = new Date();
+  const upcoming = meetings.filter((meeting) => new Date(meeting.scheduled_at).getTime() > now.getTime()).slice(0, 3);
 
   return (
     <div className="flex flex-col w-full">

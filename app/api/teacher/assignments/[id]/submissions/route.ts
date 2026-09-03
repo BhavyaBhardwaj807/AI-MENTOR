@@ -41,7 +41,10 @@ export async function GET(
          sub.id        AS submission_id,
          sub.status    AS submission_status,
          sub.submitted_at,
-         sub.content
+         sub.content,
+         sub.file_name,
+         sub.file_path,
+         sub.file_type
        FROM assignment_students ast
        JOIN users u
          ON u.id = ast.student_id
@@ -63,6 +66,11 @@ export async function GET(
       status: row.submission_id ? "submitted" : "pending",
       submitted_at: row.submitted_at ?? null,
       content: row.content ?? null,
+      file: row.file_path && row.file_name ? {
+        name: row.file_name,
+        url: `/api/teacher/assignments/${assignmentId}/submissions/${row.submission_id}/file`,
+        type: row.file_type ?? "application/octet-stream",
+      } : null,
     }));
 
     return Response.json(submissions);
