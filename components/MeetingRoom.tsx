@@ -249,7 +249,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
     async function join() {
       try {
         console.log("[Agora] Requesting token");
-        const response = await fetch("/api/agora/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelName: roomId }) });
+        const response = await fetch(`/api/meetings/${roomId}/token`);
         const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not get a meeting token.");
         if (session.cancelled) return;
         console.log("[Agora] Joining channel");
