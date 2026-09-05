@@ -98,3 +98,22 @@ export async function addTranscriptSegment(
     );
   }
 }
+
+export async function getActiveSessions(): Promise<string[]> {
+  const keys = await redis.keys("classroom:*:context");
+  return keys.map((key) => key.split(":")[1]);
+}
+
+export async function setLastAiSpokeAt(sessionId: string): Promise<void> {
+  const key = getContextKey(sessionId);
+  const script = `
+    local ctx = redis.call("GET", KEYS[1])
+    if not ctx then return nil end
+    local parsed = cjson.decode(ctx)
+    parsed.last_ai_spoke_at = tonumber(ARGV[1])
+    local new_ctx = cjson.encode(parsed)
+    redis.call("SET", KEYS[1], new_ctx, "KEEPTTL")
+    return new_ctx
+  `;
+  await redis.eval(script, 1, key, Date.now().toString());
+}

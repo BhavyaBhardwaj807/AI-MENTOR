@@ -10,8 +10,10 @@ import { brainLog as logger } from "@/lib/logger";
 import { embedWorker } from "./embed-documents";
 import { classifyWorker } from "./classify-turn";
 import { dreamWorker } from "./dream-memories";
+import { startInterventionEngine } from "./intervention-engine";
 
 logger.info("Starting background workers...");
+startInterventionEngine();
 
 embedWorker.on("ready", () => {
   logger.info("Embed worker ready");

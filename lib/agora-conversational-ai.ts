@@ -165,6 +165,32 @@ export async function stopAgentById(agentId: string): Promise<void> {
   }
 }
 
+export async function injectPrompt(agentId: string, prompt: string): Promise<void> {
+  const appId = process.env.AGORA_APP_ID!;
+  const restKey = process.env.AGORA_REST_KEY!;
+  const restSecret = process.env.AGORA_REST_SECRET!;
+  const res = await fetch(
+    `${BASE_URL}/projects/${appId}/agents/${agentId}/think`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: basicAuth(restKey, restSecret),
+      },
+      body: JSON.stringify({
+        text: prompt,
+        on_listening_action: "inject",
+        on_thinking_action: "ignore",
+        on_speaking_action: "ignore",
+      }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    console.warn(`[AI] injectPrompt ${agentId} failed (${res.status}):`, JSON.stringify(data));
+  }
+}
+
 export async function stopAllAgentsInChannel(channelName: string): Promise<void> {
   const appId = process.env.AGORA_APP_ID!;
   const restKey = process.env.AGORA_REST_KEY!;
