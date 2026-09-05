@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { AgentStatus } from "./useMeeting";
 import {
   MicIcon, MicOffIcon, VideoIcon, VideoOffIcon,
-  ScreenShareIcon, CallEndIcon, AiIcon,
+  ScreenShareIcon, CallEndIcon, AiIcon, QuizIcon,
 } from "./icons";
 import styles from "./meeting.module.css";
 
@@ -36,7 +36,7 @@ function ControlButton({
 
 export default function ControlBar({
   micOn, cameraOn, onToggleMic, onToggleCamera, onLeave,
-  agentStatus, onStartAgent,
+  agentStatus, onStartAgent, onGenerateQuiz,
 }: {
   micOn: boolean;
   cameraOn: boolean;
@@ -45,6 +45,7 @@ export default function ControlBar({
   onLeave: () => void;
   agentStatus?: AgentStatus;
   onStartAgent?: () => void;
+  onGenerateQuiz?: () => void;
 }) {
   const agentLabel =
     agentStatus === "active" ? "AI Mentor is in the room"
@@ -82,6 +83,15 @@ export default function ControlBar({
             state={agentStatus === "active" ? "active" : "default"}
           >
             <AiIcon />
+          </ControlButton>
+        )}
+
+        {onGenerateQuiz && (
+          <ControlButton
+            label="Generate Pop-up Quiz"
+            onClick={onGenerateQuiz}
+          >
+            <QuizIcon />
           </ControlButton>
         )}
       </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMeeting } from "./useMeeting";
 import MeetingStage from "./MeetingStage";
 import { MeetingStateScreen } from "./MeetingStateScreen";
+import { QuizModal } from "../quiz/QuizModal";
 import type { ParticipantVM } from "./types";
 import styles from "./meeting.module.css";
 
@@ -101,19 +102,44 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
     });
   }
 
+  const handleGenerateQuiz = async () => {
+    const topic = window.prompt("Enter quiz topic (e.g. Newton's laws):", "physics");
+    if (!topic) return;
+    try {
+      await fetch("/api/brain/quiz/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId: roomId,
+          sessionId: roomId, // Using roomId as sessionId for MVP
+          topic,
+        }),
+      });
+      // The QuizModal component will pick this up via polling
+    } catch (err) {
+      console.error("Failed to generate quiz", err);
+      alert("Failed to generate quiz");
+    }
+  };
+
   return (
-    <MeetingStage
-      roomId={roomId}
-      status={m.status}
-      connected={connected}
-      participants={participants}
-      micOn={m.microphoneOn}
-      cameraOn={m.cameraOn}
-      onToggleMic={() => void m.toggleMicrophone()}
-      onToggleCamera={() => void m.toggleCamera()}
-      onLeave={() => void m.leave()}
-      agentStatus={m.agentStatus}
-      onStartAgent={() => void m.startAiMentor()}
-    />
+    <>
+      <MeetingStage
+        roomId={roomId}
+        status={m.status}
+        connected={connected}
+        participants={participants}
+        micOn={m.microphoneOn}
+        cameraOn={m.cameraOn}
+        onToggleMic={() => void m.toggleMicrophone()}
+        onToggleCamera={() => void m.toggleCamera()}
+        onLeave={() => void m.leave()}
+        agentStatus={m.agentStatus}
+        onStartAgent={() => void m.startAiMentor()}
+        onGenerateQuiz={handleGenerateQuiz}
+      />
+      {/* Quiz Modal active overlay */}
+      <QuizModal classId={roomId} sessionId={roomId} studentId="student_123" />
+    </>
   );
 }

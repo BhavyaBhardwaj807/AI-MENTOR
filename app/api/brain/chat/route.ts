@@ -9,6 +9,8 @@
 import { NextRequest } from "next/server";
 import { redis } from "@/lib/redis";
 import { brainLog, logBrainTurn, startTimer } from "@/lib/logger";
+import { assembleContext } from "@/lib/brain/context-assembler";
+import { RETRIEVAL } from "@/lib/brain/config";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,6 +87,11 @@ function buildSystemPrompt(ctx: ClassroomContext | null): string {
     lines.push(`Unanswered student question: "${ctx.unanswered_questions[0].text}"`);
   }
   return lines.join(" ");
+}
+
+function appendRAGContext(systemPrompt: string, ragText: string): string {
+  if (!ragText || ragText === "No relevant context found.") return systemPrompt;
+  return `${systemPrompt}\n\n[RETRIEVED KNOWLEDGE]\nUse the following course materials to ground your answer. If they are irrelevant, ignore them.\n${ragText}\n[/RETRIEVED KNOWLEDGE]`;
 }
 
 // ── SSE helpers ────────────────────────────────────────────────────────────
@@ -221,7 +228,25 @@ export async function POST(req: NextRequest) {
     teacher_speaking: ctx?.teacher_speaking ?? false,
   }, `[Brain] classified → ${path}`);
 
-  const systemContent = buildSystemPrompt(ctx);
+  let ragContextText = "";
+  let ragUsed = false;
+
+  if (path === "slow" && ctx?.class_id) {
+    tlog.debug("[Brain] assembling context...");
+    const { text, results } = await assembleContext(lastUserText, {
+      classId: ctx.class_id,
+      sessionId: sessionId || undefined,
+      studentId: speakerUid !== "unknown" ? speakerUid : undefined,
+      confusedConcepts,
+      scoreThreshold: RETRIEVAL.scoreThreshold,
+      maxResults: RETRIEVAL.courseTopK,
+      tokenBudget: RETRIEVAL.maxContextTokens,
+    });
+    ragContextText = text;
+    ragUsed = results.length > 0;
+  }
+
+  const systemContent = appendRAGContext(buildSystemPrompt(ctx), ragContextText);
   const messagesWithCtx: ChatMessage[] = [
     { role: "system", content: systemContent },
     ...messages.filter((m) => m.role !== "system"),
@@ -270,6 +295,7 @@ export async function POST(req: NextRequest) {
           response: fullResponse,
           tokens: tokenCount,
           latencyMs: elapsed(),
+          ragUsed,
         });
       } catch (err) {
         tlog.error({ err, latency_ms: elapsed() }, "[Brain] LLM error");

@@ -40,8 +40,8 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   const llmModel = process.env.LLM_MODEL || "gpt-4o-mini";
 
   // TTS — Agora managed mode (MiniMax) — no TTS API key required
-  // Falls back to BYOK OpenAI TTS if TTS_API_KEY is set in env
-  const ttsApiKey = process.env.TTS_API_KEY;
+  // Falls back to BYOK OpenAI TTS if TTS_API_KEY (or LLM_API_KEY) is set
+  const ttsApiKey = process.env.TTS_API_KEY || process.env.LLM_API_KEY;
   const useByokTts = Boolean(ttsApiKey);
 
   const token = agentToken(appId, appCertificate, channelName, agentUid);
@@ -60,8 +60,9 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
     ? {
         vendor: "openai" as const,
         params: {
+          url: "https://api.aicredits.in/v1/audio/speech",
           api_key: ttsApiKey,
-          model: process.env.TTS_MODEL || "tts-1",
+          model: "openai/tts-1",
           voice: process.env.TTS_VOICE || "alloy",
         },
       }

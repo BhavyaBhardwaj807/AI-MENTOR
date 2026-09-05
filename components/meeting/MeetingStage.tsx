@@ -19,6 +19,7 @@ export type MeetingStageProps = {
   onLeave: () => void;
   agentStatus?: AgentStatus;
   onStartAgent?: () => void;
+  onGenerateQuiz?: () => void;
 };
 
 /**
@@ -29,7 +30,7 @@ export type MeetingStageProps = {
 export default function MeetingStage({
   roomId, status, connected, participants,
   micOn, cameraOn, onToggleMic, onToggleCamera, onLeave,
-  agentStatus, onStartAgent,
+  agentStatus, onStartAgent, onGenerateQuiz,
 }: MeetingStageProps) {
   return (
     <div className={styles.stage}>
@@ -50,6 +51,7 @@ export default function MeetingStage({
         onLeave={onLeave}
         agentStatus={agentStatus}
         onStartAgent={onStartAgent}
+        onGenerateQuiz={onGenerateQuiz}
       />
     </div>
   );
