@@ -36,7 +36,7 @@ function ControlButton({
 
 export default function ControlBar({
   micOn, cameraOn, onToggleMic, onToggleCamera, onLeave,
-  agentStatus, onStartAgent,
+  agentStatus, onToggleAgent, onEndMeeting,
 }: {
   micOn: boolean;
   cameraOn: boolean;
@@ -44,10 +44,11 @@ export default function ControlBar({
   onToggleCamera: () => void;
   onLeave: () => void;
   agentStatus?: AgentStatus;
-  onStartAgent?: () => void;
+  onToggleAgent?: () => void;
+  onEndMeeting?: () => void;
 }) {
   const agentLabel =
-    agentStatus === "active" ? "AI Mentor is in the room"
+    agentStatus === "active" ? "Remove AI Mentor"
     : agentStatus === "starting" ? "Adding AI Mentor…"
     : "Add AI Mentor";
 
@@ -74,28 +75,42 @@ export default function ControlBar({
           <ScreenShareIcon />
         </ControlButton>
 
-        {agentStatus !== undefined && (
+        {onToggleAgent !== undefined && agentStatus !== undefined && (
           <ControlButton
             label={agentLabel}
-            onClick={agentStatus === "idle" ? onStartAgent : undefined}
-            disabled={agentStatus !== "idle"}
+            onClick={agentStatus !== "starting" ? onToggleAgent : undefined}
+            disabled={agentStatus === "starting"}
             state={agentStatus === "active" ? "active" : "default"}
           >
             <AiIcon />
           </ControlButton>
         )}
+
       </div>
 
-      <button
-        type="button"
-        className={styles.leaveButton}
-        onClick={onLeave}
-        aria-label="Leave meeting"
-        title="Leave meeting"
-      >
-        <CallEndIcon />
-        <span className={styles.leaveLabel}>Leave</span>
-      </button>
+      <div className="flex items-center gap-2">
+        {onEndMeeting && (
+          <button
+            type="button"
+            className="h-12 px-6 bg-ag-error hover:bg-ag-error/90 text-[#fff] font-medium rounded-[12px] flex items-center justify-center transition-colors shadow-sm text-[14px]"
+            onClick={onEndMeeting}
+            aria-label="End meeting for all"
+            title="End meeting for all"
+          >
+            End Meeting for All
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.leaveButton}
+          onClick={onLeave}
+          aria-label="Leave meeting"
+          title="Leave meeting"
+        >
+          <CallEndIcon />
+          <span className={styles.leaveLabel}>Leave</span>
+        </button>
+      </div>
     </div>
   );
 }

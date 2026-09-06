@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "assignment_submissions_assignment_student_idx" ON "assignment_submissions" USING btree ("assignment_id","student_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "quiz_attempts_quiz_student_question_idx" ON "quiz_attempts" USING btree ("quiz_id","student_id","question_id");

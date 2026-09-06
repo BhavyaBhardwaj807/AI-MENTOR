@@ -40,8 +40,14 @@ RUN adduser  --system --uid 1001 nextjs
 
 # Standalone output (set output: 'standalone' in next.config.ts)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=deps    --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public           ./public
+COPY --from=builder --chown=nextjs:nodejs /app/package.json     ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json    ./tsconfig.json
+COPY --from=builder --chown=nextjs:nodejs /app/workers          ./workers
+COPY --from=builder --chown=nextjs:nodejs /app/lib              ./lib
+COPY --from=builder --chown=nextjs:nodejs /app/drizzle          ./drizzle
 
 USER nextjs
 

@@ -13,7 +13,7 @@ function initials(name: string) {
 }
 
 export default function ParticipantTile({ participant }: { participant: ParticipantVM }) {
-  const { name, isLocal, isAI, micOn, cameraOn, speaking, videoTrack, poster } = participant;
+  const { name, isAI, micOn, cameraOn, speaking, videoTrack, poster } = participant;
   const videoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

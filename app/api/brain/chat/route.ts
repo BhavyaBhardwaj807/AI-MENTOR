@@ -9,6 +9,14 @@
 import { NextRequest } from "next/server";
 import { redis } from "@/lib/redis";
 import { brainLog, logBrainTurn, startTimer } from "@/lib/logger";
+import { assembleContext } from "@/lib/brain/context-assembler";
+import { setLastAiSpokeAt } from "@/lib/brain/live-context";
+import { RETRIEVAL } from "@/lib/brain/config";
+import { generateQuizDraft } from "@/lib/brain/quiz-generation";
+import { parseQuizCommand } from "@/lib/brain/quiz-command";
+import { evaluateSpeakingPolicy } from "@/lib/brain/speaking-policy";
+import { llmJsonCall } from "@/lib/llm";
+import { z } from "zod";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -17,7 +25,14 @@ interface ChatMessage {
   content: string;
   turn_id?: number;
   timestamp?: number;
-  metadata?: { source?: string; user?: string };
+  name?: string;
+  metadata?: {
+    source?: string;
+    user?: string;
+    uid?: string | number;
+    rtc_uid?: string | number;
+    speaker_uid?: string | number;
+  };
 }
 
 interface AgoraLLMRequest {
@@ -33,8 +48,25 @@ interface ClassroomContext {
   class_id?: string;
   current_topic?: string;
   teacher_speaking?: boolean;
+  last_ai_spoke_at?: number;
   confusion_signals?: Array<{ concept: string; count: number }>;
   unanswered_questions?: Array<{ text: string }>;
+}
+
+type SpeakerMetadata = {
+  role?: string;
+  userId?: string;
+};
+
+type SpeakerRole = "teacher" | "student" | "admin" | "unknown";
+function normalizeSpeakerRole(role: unknown): SpeakerRole {
+  return role === "teacher" || role === "student" || role === "admin" ? role : "unknown";
+}
+
+function extractSpeakerUid(message: ChatMessage | undefined): string {
+  const metadata = message?.metadata;
+  const value = metadata?.user ?? metadata?.uid ?? metadata?.rtc_uid ?? metadata?.speaker_uid ?? message?.name;
+  return value == null || value === "" ? "unknown" : String(value);
 }
 
 // ── Filler phrases ─────────────────────────────────────────────────────────
@@ -55,6 +87,15 @@ function classifyPath(text: string): "fast" | "slow" {
   if (/explain|how does|why|what is|define|confused|don.t understand/i.test(text)) return "slow";
   return text.length > 100 ? "slow" : "fast";
 }
+
+const CommandIntentSchema = z.object({
+  isCommand: z.boolean().describe("Whether the utterance is a direct command to the AI"),
+  intent: z.enum(["CREATE_QUIZ", "NONE"]).describe("The specific command intent"),
+  args: z.object({
+    topic: z.string().optional().describe("The topic for the quiz"),
+    questionCount: z.number().optional().describe("Number of questions requested"),
+  }).optional(),
+});
 
 // ── Context loader ─────────────────────────────────────────────────────────
 
@@ -87,6 +128,11 @@ function buildSystemPrompt(ctx: ClassroomContext | null): string {
   return lines.join(" ");
 }
 
+function appendRAGContext(systemPrompt: string, ragText: string): string {
+  if (!ragText || ragText === "No relevant context found.") return systemPrompt;
+  return `${systemPrompt}\n\n[RETRIEVED KNOWLEDGE]\nUse the following course materials to ground your answer. If they are irrelevant, ignore them.\n${ragText}\n[/RETRIEVED KNOWLEDGE]`;
+}
+
 // ── SSE helpers ────────────────────────────────────────────────────────────
 
 const enc = new TextEncoder();
@@ -113,6 +159,25 @@ function sseMeta(id: string, interruptable: boolean) {
 }
 
 const SSE_DONE = enc.encode("data: [DONE]\n\n");
+
+function silentResponse(responseId: string, headers: Record<string, string> = {}) {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(sseChunk(responseId, "", "stop"));
+      controller.enqueue(SSE_DONE);
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      ...headers,
+    },
+  });
+}
 
 // ── LLM streaming ──────────────────────────────────────────────────────────
 
@@ -173,15 +238,19 @@ function extractSessionId(messages: ChatMessage[]): string | null {
 export async function POST(req: NextRequest) {
   const elapsed = startTimer();
 
-  // Auth (optional — only enforced if BRAIN_SERVER_SECRET is set)
+  // Agora calls this endpoint as an OpenAI-compatible LLM provider. Keep it
+  // private so browser callers cannot spend LLM quota or inject classroom turns.
   const secret = process.env.BRAIN_SERVER_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : auth;
-    if (token !== secret) {
-      brainLog.warn({ ip: req.headers.get("x-forwarded-for") }, "[Brain] 401 bad secret");
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-    }
+  if (!secret) {
+    brainLog.error("[Brain] BRAIN_SERVER_SECRET is not configured");
+    return new Response(JSON.stringify({ error: "Brain endpoint is not configured" }), { status: 500 });
+  }
+
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : auth;
+  if (token !== secret) {
+    brainLog.warn({ ip: req.headers.get("x-forwarded-for") }, "[Brain] 401 bad secret");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 
   let body: AgoraLLMRequest;
@@ -197,7 +266,7 @@ export async function POST(req: NextRequest) {
   const allUserMsgs = messages.filter((m) => m.role === "user");
   const lastUser = allUserMsgs.at(-1);
   const lastUserText = lastUser?.content ?? "";
-  const speakerUid = lastUser?.metadata?.user ?? "unknown";
+  const speakerUid = extractSpeakerUid(lastUser);
   const turnId = body.turn_id ?? 0;
   const sessionId = extractSessionId(messages);
 
@@ -211,23 +280,130 @@ export async function POST(req: NextRequest) {
   }, "[Brain] incoming turn");
 
   const ctx = await getClassroomContext(sessionId);
-  const path = classifyPath(lastUserText);
   const confusedConcepts = ctx?.confusion_signals?.map((s) => s.concept) ?? [];
+
+  // Determine speaker role
+  let speakerRole: SpeakerRole = "unknown";
+  let speakerUserId: string | undefined;
+  if (sessionId && speakerUid !== "unknown") {
+    try {
+      const speakerRaw = await redis.hget(`session:${sessionId}:speakers`, speakerUid);
+      if (speakerRaw) {
+        const speakerParsed = JSON.parse(speakerRaw) as SpeakerMetadata;
+        speakerRole = normalizeSpeakerRole(speakerParsed.role);
+        speakerUserId = speakerParsed.userId;
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (sessionId && speakerRole === "unknown") {
+    try {
+      const controllerRaw = await redis.get(`session:${sessionId}:voice-controller`);
+      if (controllerRaw) {
+        const controller = JSON.parse(controllerRaw) as SpeakerMetadata;
+        speakerRole = normalizeSpeakerRole(controller.role);
+        speakerUserId = controller.userId;
+      }
+    } catch { /* ignore */ }
+  }
+  const speakerStudentId = speakerRole === "student" ? speakerUserId : undefined;
+
+  let path: "fast" | "slow" | "command" = classifyPath(lastUserText);
+  let commandData: z.infer<typeof CommandIntentSchema> | null = null;
+
+  const quizCommandSpeakerAllowed = speakerRole === "teacher" || speakerRole === "admin" || speakerRole === "unknown";
+  const directQuizCommand = parseQuizCommand(lastUserText);
+
+  if (quizCommandSpeakerAllowed && directQuizCommand) {
+    path = "command";
+    commandData = directQuizCommand;
+  }
+
+  // Command intent pipeline (Phase 2). The deterministic parser handles the
+  // common voice phrases; the model remains as a fallback for less direct asks.
+  if (!commandData && quizCommandSpeakerAllowed && /(quiz|questions|test)/i.test(lastUserText)) {
+    tlog.debug("[Brain] quiz mentioned, checking intent...");
+    try {
+      const intentRes = await llmJsonCall({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are an intent classifier for a voice AI co-teacher named George. Determine if the teacher is asking you to create a quiz." },
+          { role: "user", content: `Current Topic: ${ctx?.current_topic || "Unknown"}\nTeacher says: "${lastUserText}"\nIdentify intent. If topic isn't explicitly mentioned, infer from context.` }
+        ],
+        schema: CommandIntentSchema,
+        maxTokens: 100,
+      });
+      if (intentRes.parsed.isCommand && intentRes.parsed.intent === "CREATE_QUIZ") {
+        path = "command";
+        commandData = intentRes.parsed;
+      }
+    } catch (err) {
+      tlog.warn({ err }, "[Brain] intent classification failed");
+    }
+  }
+
+  const speakingDecision = evaluateSpeakingPolicy({
+    text: lastUserText,
+    speakerRole,
+    command: commandData?.intent,
+    context: ctx ? {
+      teacher_speaking: Boolean(ctx.teacher_speaking),
+      confusion_signals: ctx.confusion_signals ?? [],
+      unanswered_questions: ctx.unanswered_questions ?? [],
+      last_ai_spoke_at: ctx.last_ai_spoke_at,
+    } : null,
+  });
 
   tlog.info({
     path,
     topic: ctx?.current_topic ?? null,
     confused_concepts: confusedConcepts,
     teacher_speaking: ctx?.teacher_speaking ?? false,
+    speaker_role: speakerRole,
+    command: commandData?.intent ?? null,
+    should_speak: speakingDecision.shouldSpeak,
+    confidence_to_speak: speakingDecision.confidence,
+    speak_reason: speakingDecision.reason,
   }, `[Brain] classified → ${path}`);
 
-  const systemContent = buildSystemPrompt(ctx);
+  const responseId = `brain-${Date.now()}`;
+
+  if (!speakingDecision.shouldSpeak) {
+    tlog.info({
+      confidence_to_speak: speakingDecision.confidence,
+      speak_reason: speakingDecision.reason,
+      message: lastUserText.slice(0, 120),
+    }, "[Brain] abstained");
+    return silentResponse(responseId, {
+      "X-Brain-Path": "abstain",
+      "X-Brain-Speak-Confidence": speakingDecision.confidence.toFixed(2),
+    });
+  }
+
+  let ragContextText = "";
+  let ragUsed = false;
+
+  if (path !== "command" && ctx?.class_id) {
+    tlog.debug("[Brain] assembling context...");
+    const { text, results } = await assembleContext(lastUserText, {
+      classId: ctx.class_id,
+      sessionId: sessionId || undefined,
+      studentId: speakerStudentId,
+      confusedConcepts,
+      scoreThreshold: RETRIEVAL.scoreThreshold,
+      maxResults: RETRIEVAL.courseTopK,
+      tokenBudget: RETRIEVAL.maxContextTokens,
+    });
+    ragContextText = text;
+    ragUsed = results.length > 0;
+  }
+
+  const systemContent = appendRAGContext(buildSystemPrompt(ctx), ragContextText);
   const messagesWithCtx: ChatMessage[] = [
     { role: "system", content: systemContent },
     ...messages.filter((m) => m.role !== "system"),
   ];
 
-  const responseId = `brain-${Date.now()}`;
   const abortController = new AbortController();
 
   let fillerUsed: string | undefined;
@@ -246,14 +422,56 @@ export async function POST(req: NextRequest) {
           controller.enqueue(sseMeta(responseId + "-m2", true));
         }
 
-        for await (const token of streamLLM(messagesWithCtx, resolvedModel, abortController.signal)) {
-          controller.enqueue(sseChunk(responseId, token));
-          fullResponse += token;
-          tokenCount++;
+        if (path === "command" && commandData?.intent === "CREATE_QUIZ") {
+          const quizTopic = commandData.args?.topic || ctx?.current_topic || "general review";
+          const ack = sessionId && ctx?.class_id
+            ? `Sure, I'll draft a quiz on ${quizTopic} for you to review.`
+            : "I heard the quiz request, but this meeting is missing classroom context, so I can't create it yet.";
+          controller.enqueue(sseChunk(responseId, ack));
+          fullResponse = ack;
+
+          if (sessionId && ctx?.class_id) {
+            void generateQuizDraft({
+              classId: ctx.class_id,
+              sessionId,
+              studentId: speakerStudentId,
+              topic: quizTopic,
+              generatedBy: "ai",
+            })
+              .then((result) => {
+                tlog.info(
+                  { quizId: result.quiz.id, questions: result.quiz.questions.length, topic: quizTopic },
+                  "[Brain] quiz generation dispatched",
+                );
+              })
+              .catch((err) => {
+                tlog.error(
+                  {
+                    err,
+                    topic: quizTopic,
+                    classId: ctx.class_id,
+                    sessionId,
+                  },
+                  "[Brain] quiz generation dispatch failed",
+                );
+              });
+          }
+        } else {
+          for await (const token of streamLLM(messagesWithCtx, resolvedModel, abortController.signal)) {
+            controller.enqueue(sseChunk(responseId, token));
+            fullResponse += token;
+            tokenCount++;
+          }
         }
 
         controller.enqueue(sseChunk(responseId, "", "stop"));
         controller.enqueue(SSE_DONE);
+
+        if (sessionId && fullResponse.trim()) {
+          await setLastAiSpokeAt(sessionId).catch((err) => {
+            tlog.warn({ err }, "[Brain] failed to update last_ai_spoke_at");
+          });
+        }
 
         // Structured log of completed turn
         logBrainTurn({
@@ -265,11 +483,12 @@ export async function POST(req: NextRequest) {
           model: resolvedModel,
           topic: ctx?.current_topic ?? null,
           confusedConcepts,
-          path,
+          path: (path === "command" ? "fast" : path) as "fast" | "slow",
           fillerPhrase: fillerUsed,
           response: fullResponse,
           tokens: tokenCount,
           latencyMs: elapsed(),
+          ragUsed,
         });
       } catch (err) {
         tlog.error({ err, latency_ms: elapsed() }, "[Brain] LLM error");
@@ -291,7 +510,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "X-Brain-Path": path,
+      "X-Brain-Path": (path === "command" ? "fast" : path) as "fast" | "slow",
     },
   });
 }

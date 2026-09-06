@@ -1,5 +1,7 @@
 import { redis } from "@/lib/redis";
 import { qdrant } from "@/lib/qdrant";
+import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,14 @@ export async function GET() {
     checks.redis = "ok";
   } catch {
     checks.redis = "error";
+  }
+
+  // Postgres
+  try {
+    await db.execute(sql`SELECT 1`);
+    checks.postgres = "ok";
+  } catch {
+    checks.postgres = "error";
   }
 
   // Qdrant

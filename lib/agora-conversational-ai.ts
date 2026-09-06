@@ -24,7 +24,11 @@ function agentToken(
   );
 }
 
-export async function startAgent(channelName: string): Promise<{ agentId: string }> {
+export async function startAgent(
+  channelName: string,
+  sessionId?: string,
+  remoteRtcUids: string[] = ["*"],
+): Promise<{ agentId: string }> {
   const appId = process.env.AGORA_APP_ID!;
   const appCertificate = process.env.AGORA_APP_CERTIFICATE!;
   const restKey = process.env.AGORA_REST_KEY!;
@@ -36,20 +40,24 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
   // so Agora treats it identically to a direct LLM provider.
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const llmUrl = `${appUrl}/api/brain/chat`;
-  const llmApiKey = process.env.BRAIN_SERVER_SECRET || process.env.LLM_API_KEY || "";
+  const llmApiKey = process.env.BRAIN_SERVER_SECRET || "";
   const llmModel = process.env.LLM_MODEL || "gpt-4o-mini";
 
   // TTS — Agora managed mode (MiniMax) — no TTS API key required
-  // Falls back to BYOK OpenAI TTS if TTS_API_KEY is set in env
-  const ttsApiKey = process.env.TTS_API_KEY;
+  // Falls back to BYOK OpenAI TTS if TTS_API_KEY (or LLM_API_KEY) is set
+  const ttsApiKey = process.env.TTS_API_KEY || process.env.LLM_API_KEY;
   const useByokTts = Boolean(ttsApiKey);
 
   const token = agentToken(appId, appCertificate, channelName, agentUid);
+  if (!llmApiKey) {
+    throw new Error("BRAIN_SERVER_SECRET must be configured before starting the AI Mentor.");
+  }
 
   console.log("[Agent:backend] --- CONFIG ---");
   console.log("[Agent:backend] appId        :", appId);
   console.log("[Agent:backend] channelName  :", channelName);
   console.log("[Agent:backend] agentUid     :", agentUid);
+  console.log("[Agent:backend] remoteUids   :", remoteRtcUids.join(","));
   console.log("[Agent:backend] llmUrl       :", llmUrl);
   console.log("[Agent:backend] llmModel     :", llmModel);
   console.log("[Agent:backend] tts mode     :", useByokTts ? "byok (openai)" : "managed (minimax)");
@@ -60,8 +68,9 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
     ? {
         vendor: "openai" as const,
         params: {
+          url: "https://api.aicredits.in/v1/audio/speech",
           api_key: ttsApiKey,
-          model: process.env.TTS_MODEL || "tts-1",
+          model: "openai/tts-1",
           voice: process.env.TTS_VOICE || "alloy",
         },
       }
@@ -78,13 +87,15 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
         },
       };
 
+  const sessionMarker = sessionId ? `[SESSION:${sessionId}]\n` : "";
+
   const body = {
     name: `mentor-${Date.now()}`,
     properties: {
       channel: channelName,
       token,
       agent_rtc_uid: String(agentUid),
-      remote_rtc_uids: ["0"],
+      remote_rtc_uids: remoteRtcUids,
       idle_timeout: 120,
 
       // ASR — Agora ARES, free, no key needed
@@ -97,13 +108,13 @@ export async function startAgent(channelName: string): Promise<{ agentId: string
       llm: {
         url: llmUrl,
         api_key: llmApiKey,
-        system_messages: [
-          {
-            role: "system",
-            content:
-              "You are an AI Mentor in a live classroom. You are a concise, helpful teaching assistant. Keep responses to 1–3 sentences unless the user asks for more. Never interrupt the teacher.",
-          },
-        ],
+	        system_messages: [
+	          {
+	            role: "system",
+	            content:
+	              `${sessionMarker}You are an AI Mentor in a live classroom. You are a concise, helpful teaching assistant. Keep responses to 1–3 sentences unless the user asks for more. Never interrupt the teacher.`,
+	          },
+	        ],
         greeting_message: "Hi, I'm your AI Mentor. Ask me anything about the lesson.",
         failure_message: "Sorry, I'm having trouble responding right now.",
         params: { model: llmModel },
@@ -161,6 +172,32 @@ export async function stopAgentById(agentId: string): Promise<void> {
       `[AI] stopAgentById ${agentId} failed (${res.status}):`,
       JSON.stringify(data),
     );
+  }
+}
+
+export async function injectPrompt(agentId: string, prompt: string): Promise<void> {
+  const appId = process.env.AGORA_APP_ID!;
+  const restKey = process.env.AGORA_REST_KEY!;
+  const restSecret = process.env.AGORA_REST_SECRET!;
+  const res = await fetch(
+    `${BASE_URL}/projects/${appId}/agents/${agentId}/think`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: basicAuth(restKey, restSecret),
+      },
+      body: JSON.stringify({
+        text: prompt,
+        on_listening_action: "inject",
+        on_thinking_action: "ignore",
+        on_speaking_action: "ignore",
+      }),
+    }
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    console.warn(`[AI] injectPrompt ${agentId} failed (${res.status}):`, JSON.stringify(data));
   }
 }
 

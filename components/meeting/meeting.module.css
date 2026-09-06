@@ -19,6 +19,7 @@
 }
 
 .stageMain {
+  position: relative;
   flex: 1;
   min-height: 0; /* allow flex child to shrink past its content */
   display: flex;
@@ -26,6 +27,24 @@
   padding: 8px;
   gap: 8px;
   overflow: hidden;
+}
+
+.meetingNotice {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  max-width: min(520px, calc(100% - 32px));
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--danger-border);
+  background: rgba(24, 24, 27, 0.94);
+  color: #fff;
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  z-index: 20;
 }
 
 /* ============================================================================

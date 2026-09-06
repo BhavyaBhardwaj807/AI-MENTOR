@@ -3,6 +3,7 @@ node_modules/
 
 # Next.js
 .next/
+.next_dev.pid
 out/
 
 # Environment variables / secrets
@@ -18,6 +19,9 @@ out/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# Runtime uploads
+data/uploads/
 
 # Vercel
 .vercel/
@@ -37,4 +41,3 @@ Thumbs.db
 
 # keys
 private*
-
