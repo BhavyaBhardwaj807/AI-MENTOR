@@ -64,7 +64,8 @@ export class CourseRetrievalAdapter implements RetrievalAdapter {
           citation,
         };
       });
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Record<string, unknown>;
       if (err?.status === 404) return [];
       console.error("[CourseRetrievalAdapter] query failed:", err);
       return [];

@@ -56,7 +56,8 @@ export class MemoryRetrievalAdapter implements RetrievalAdapter {
           citation: `Student History (Concept: ${concept})`,
         };
       });
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Record<string, unknown>;
       if (err?.status === 404) return [];
       console.error("[MemoryRetrievalAdapter] query failed:", err);
       return [];
