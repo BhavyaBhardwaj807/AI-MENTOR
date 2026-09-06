@@ -77,11 +77,11 @@ export function TeacherSidePanel({
         <div>
           <p>Review the drafted questions below:</p>
           <div className={styles.draftQuestions}>
-            {activeQuiz.questions.map((q, i) => (
+            {activeQuiz.questions?.map((q, i) => (
               <div key={q.id} className={styles.draftQuestion}>
                 <p><strong>Q{i + 1}:</strong> {q.questionText}</p>
                 <ul>
-                  {Object.entries(q.options).map(([k, v]) => (
+                  {q.options && Object.entries(q.options).map(([k, v]) => (
                     <li key={k} style={{ fontWeight: k === q.correctAnswer ? "bold" : "normal", color: k === q.correctAnswer ? "green" : "inherit" }}>
                       {k}: {v} {k === q.correctAnswer && "(Correct)"}
                     </li>
@@ -91,6 +91,12 @@ export function TeacherSidePanel({
             ))}
           </div>
           <button onClick={handlePublish} className={styles.publishBtn}>Approve & Publish to Class</button>
+        </div>
+      )}
+
+      {activeQuiz.status === "failed" && (
+        <div>
+          <p style={{ color: "red" }}>Failed to generate quiz. The AI might have been confused by the context or timed out. Please try asking George to create the quiz again.</p>
         </div>
       )}
 

@@ -24,7 +24,7 @@ export type SpeakingPolicyDecision = {
 
 const DEFAULT_WAKE_WORDS = ["george", "mentor", "ai mentor"];
 const COOLDOWN_MS = 8_000;
-const MIN_CONFIDENCE_TO_SPEAK = 0.62;
+const MIN_CONFIDENCE_TO_SPEAK = 0.70;
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -63,19 +63,19 @@ export function evaluateSpeakingPolicy(input: SpeakingPolicyInput): SpeakingPoli
   const inCooldown = Boolean(context?.last_ai_spoke_at && now - context.last_ai_spoke_at < COOLDOWN_MS);
 
   let confidence = 0;
-  if (addressed) confidence += 0.48;
-  if (aiDirected) confidence += 0.3;
-  if (directQuestion) confidence += 0.18;
-  if (studentHelp) confidence += 0.28;
-  if (input.speakerRole === "teacher" || input.speakerRole === "admin") confidence += 0.08;
-  if (input.speakerRole === "unknown") confidence -= 0.12;
-  if (context?.teacher_speaking && input.speakerRole !== "teacher") confidence -= 0.25;
-  if (likelyLecture) confidence -= 0.35;
-  if (inCooldown) confidence -= 0.2;
+  if (addressed) confidence += 0.71; // Guarantees speaking if wake word used
+  if (aiDirected) confidence += 0.2; // Reduced so it doesn't trigger just by asking a generic question without wake word
+  if (directQuestion) confidence += 0.1;
+  if (studentHelp) confidence += 0.3; 
+  if (input.speakerRole === "teacher" || input.speakerRole === "admin") confidence += 0.05;
+  if (input.speakerRole === "unknown") confidence -= 0.2; // Penalize unknown speakers heavily
+  if (context?.teacher_speaking && input.speakerRole !== "teacher") confidence -= 0.4; // Don't interrupt teacher
+  if (likelyLecture) confidence -= 0.5;
+  if (inCooldown) confidence -= 0.5;
 
   const signalsArray = Array.isArray(context?.confusion_signals) ? context.confusion_signals : [];
   const hasAutonomousContext = Boolean(context?.unanswered_questions?.length || signalsArray.length);
-  if (hasAutonomousContext && !context?.teacher_speaking && !inCooldown) confidence += 0.12;
+  if (hasAutonomousContext && !context?.teacher_speaking && !inCooldown) confidence += 0.3; 
 
   confidence = clamp01(confidence);
 

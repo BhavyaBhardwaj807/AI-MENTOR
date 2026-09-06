@@ -54,7 +54,7 @@ const QuizSchema = z.preprocess((value) => {
 
   return value;
 }, z.object({
-  questions: z.array(QuizQuestionSchema).length(3),
+  questions: z.array(QuizQuestionSchema).min(1),
 }));
 
 type LLMQuizResult = z.infer<typeof QuizSchema>;
@@ -161,7 +161,7 @@ export async function generateQuizDraft(input: GenerateQuizDraftInput) {
     status: "generating",
   }).returning({ id: quizzes.id });
 
-  const systemPrompt = `You are an expert teacher. Generate a 3-question multiple-choice quiz about "${topic}".
+  const systemPrompt = `You are an expert teacher. Generate a 10-question multiple-choice quiz about "${topic}".
 Use the provided course material and student memory to tailor the difficulty and focus.
 Return exactly this JSON shape:
 {"questions":[{"questionText":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"correctAnswer":"A","difficulty":2}]}`;
