@@ -62,6 +62,7 @@ export function useMeeting(roomId: string) {
   const [channelName, setChannelName] = useState("");
   const [meetingSessionId, setMeetingSessionId] = useState("");
   const [meetingClassId, setMeetingClassId] = useState("");
+  const [agentName, setAgentName] = useState("AI Mentor");
   const agentActiveRef = useRef(false);
   const silenceTimerRef = useRef<number | null>(null);
   const silenceWarnedRef = useRef(false);
@@ -125,7 +126,8 @@ export function useMeeting(roomId: string) {
       try {
         const statusRes = await fetch(`/api/meeting/${resolvedChannel}/status`);
         if (statusRes.ok) {
-          const { status } = await statusRes.json();
+          const { status, agentName: newAgentName } = await statusRes.json();
+          if (newAgentName) setAgentName(newAgentName);
           if (status === "ended") {
             setEndedByHost(true);
             window.setTimeout(() => {
@@ -426,6 +428,7 @@ export function useMeeting(roomId: string) {
     channelName,
     sessionId: meetingSessionId,
     classId: meetingClassId,
+    agentName,
     toggleMicrophone, toggleCamera, leave, startAiMentor, stopAgent,
   };
 }

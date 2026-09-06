@@ -16,11 +16,13 @@ export async function GET(
   try {
     const params = await props.params;
     const { roomId } = params;
-
     const access = await requireMeetingAccessByChannel(roomId, { allowEnded: true });
     if (!access.ok) return access.response;
 
-    return NextResponse.json({ status: access.meeting.status });
+    return NextResponse.json({ 
+      status: access.meeting.status,
+      agentName: access.classData.agentName || "AI Mentor"
+    });
   } catch (error) {
     console.error("[meeting/status/GET] error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

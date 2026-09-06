@@ -144,7 +144,7 @@ export default function MeetingRoom({ roomId }: { roomId: string }) {
   if (m.agentStatus !== "idle" || aiUsers.length > 0) {
     participants.push({
       key: "ai-mentor",
-      name: "AI Mentor",
+      name: m.agentName || "AI Mentor",
       isAI: true,
       micOn: true,
       cameraOn: Boolean(aiRep?.hasVideo),

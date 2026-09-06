@@ -4,6 +4,9 @@ import { classMembers, quizQuestions, quizAttempts, quizzes, masteryRecords } fr
 import { inArray, eq, and } from "drizzle-orm";
 import { brainLog as logger } from "@/lib/logger";
 import { requireRole } from "@/lib/auth/guards";
+import { qdrant, COLLECTIONS } from "@/lib/qdrant";
+import { generateEmbedding } from "@/lib/embeddings";
+import { v4 as uuidv4 } from "uuid";
 
 interface SubmitQuizRequest {
   quizId: string;
@@ -140,12 +143,15 @@ export async function POST(req: Request) {
           ),
         });
 
+        let newConfidence = ratio >= 0.5 ? 0.5 : 0.2;
+        const evidenceStr = `Quiz ${quizId} result: ${stats.correct}/${stats.total} correct.`;
+
         if (existingMastery) {
-          const newConfidence = Math.max(0, Math.min(1, existingMastery.confidence + confidenceChange));
+          newConfidence = Math.max(0, Math.min(1, existingMastery.confidence + confidenceChange));
           await tx.update(masteryRecords)
             .set({
               confidence: newConfidence,
-              evidence: `Quiz ${quizId} result: ${stats.correct}/${stats.total}`,
+              evidence: evidenceStr,
               lastUpdated: new Date(),
             })
             .where(eq(masteryRecords.id, existingMastery.id));
@@ -153,9 +159,40 @@ export async function POST(req: Request) {
           await tx.insert(masteryRecords).values({
             studentId,
             conceptId,
-            confidence: ratio >= 0.5 ? 0.5 : 0.2,
-            evidence: `Initial quiz ${quizId} result: ${stats.correct}/${stats.total}`,
+            confidence: newConfidence,
+            evidence: evidenceStr,
           });
+        }
+        
+        // Push the quiz result into Qdrant for real-time AI personalization
+        try {
+          const conceptRecord = await tx.query.concepts.findFirst({
+            where: eq(masteryRecords.id, conceptId)
+          });
+          const conceptName = conceptRecord ? conceptRecord.name : conceptId;
+          const memoryText = `Student ${studentId} took a quiz on '${conceptName}' and scored ${stats.correct}/${stats.total}. This indicates ${ratio >= 0.5 ? "mastery" : "confusion"}.`;
+          
+          const vector = await generateEmbedding(memoryText);
+          const qdrantPointId = uuidv4();
+          
+          await qdrant.upsert(COLLECTIONS.STUDENT_MEMORIES, {
+            wait: true,
+            points: [
+              {
+                id: qdrantPointId,
+                vector,
+                payload: {
+                  student_id: studentId,
+                  class_id: quiz.classId,
+                  concept: conceptName,
+                  event_type: ratio >= 0.5 ? "mastery" : "confusion",
+                  content: memoryText,
+                }
+              }
+            ]
+          });
+        } catch (err) {
+          logger.error({ err, studentId, conceptId }, "Failed to push quiz mastery to Qdrant");
         }
       }
     });

@@ -22,7 +22,7 @@ export type SpeakingPolicyDecision = {
   reason: "command" | "direct_address" | "direct_question" | "student_help" | "autonomous_context" | "low_confidence";
 };
 
-const DEFAULT_WAKE_WORDS = ["george", "mentor", "ai mentor"];
+const DEFAULT_WAKE_WORDS = ["george", "mentor", "ai mentor", "जॉर्ज", "मेंटर", "ai मेंटर"];
 const COOLDOWN_MS = 8_000;
 const MIN_CONFIDENCE_TO_SPEAK = 0.70;
 
@@ -32,7 +32,12 @@ function clamp01(value: number) {
 
 export function hasWakeWord(text: string, wakeWords: string[] = DEFAULT_WAKE_WORDS) {
   const normalized = text.toLowerCase();
-  return wakeWords.some((word) => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalized));
+  // Using (?:^|\s|\p{P}) and (?:\s|\p{P}|$) with 'u' flag for Unicode-aware boundaries, 
+  // ensuring Hindi words aren't falsely rejected by ASCII \b checks.
+  return wakeWords.some((word) => {
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|\\s|\\p{P})${escaped}(?:\\s|\\p{P}|$)`, "iu").test(normalized);
+  });
 }
 
 export function evaluateSpeakingPolicy(input: SpeakingPolicyInput): SpeakingPolicyDecision {
