@@ -144,6 +144,11 @@ export const INGESTION = {
     "application/pdf",
     "text/plain",
     "text/markdown",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+    "image/png",
+    "image/jpeg",
+    "image/webp"
   ] as readonly string[],
 } as const;
 

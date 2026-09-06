@@ -116,8 +116,16 @@ Respond ONLY with JSON matching this schema:
           )
         });
 
-        // Fallback to storing by UID if we don't have a mapped user (e.g. anonymous joins)
-        const studentIdToStore = participant ? participant.userId : mem.student_id;
+        if (!participant || participant.role !== "student") {
+          log.warn(
+            { speakerUid: mem.student_id, role: participant?.role ?? null },
+            "Skipping extracted memory for unmapped or non-student speaker",
+          );
+          continue;
+        }
+
+        const studentIdToStore = participant.userId;
+        const confidence = Math.max(0, Math.min(1, mem.confidence));
 
         // Write to Postgres learningEvents
         await db.insert(learningEvents).values({
@@ -125,7 +133,7 @@ Respond ONLY with JSON matching this schema:
           studentId: studentIdToStore,
           eventType: mem.event_type,
           evidence: mem.evidence,
-          confidence: mem.confidence,
+          confidence,
         });
 
         // Generate Memory Text for Vector DB
@@ -142,7 +150,7 @@ Respond ONLY with JSON matching this schema:
           classId: session.classId,
           memoryType,
           content: memoryText,
-          confidence: mem.confidence,
+          confidence,
           qdrantPointId,
         });
 
@@ -180,7 +188,7 @@ Respond ONLY with JSON matching this schema:
             studentId: studentIdToStore,
             concept: mem.concept,
             classId: session.classId,
-            confidence: mem.confidence,
+            confidence,
           });
         } catch (err) {
           log.error({ err }, "Failed to write memory to Neo4j");

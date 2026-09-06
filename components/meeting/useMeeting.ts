@@ -10,6 +10,12 @@ import AgoraRTC, {
 
 export type AgentStatus = "idle" | "starting" | "active";
 
+export type ParticipantMetadata = {
+  name?: string | null;
+  role?: string | null;
+  userId?: string | null;
+};
+
 /**
  * useMeeting owns ALL real-time behavior: the Agora RTC lifecycle (join,
  * publish, subscribe, leave, cleanup), the AI Mentor agent lifecycle, mic/
@@ -27,6 +33,9 @@ export function useMeeting(roomId: string) {
   const client = useRef<IAgoraRTCClient | null>(null);
   const localTracks = useRef<[IMicrophoneAudioTrack?, ICameraVideoTrack?]>([]);
   const localUidRef = useRef<string | number>("");
+  const channelNameRef = useRef("");
+  const meetingSessionIdRef = useRef("");
+  const meetingClassIdRef = useRef("");
   const initializedRef = useRef(false);
   const cleanupTimerRef = useRef<number | null>(null);
   const sessionRef = useRef<{
@@ -48,6 +57,11 @@ export function useMeeting(roomId: string) {
   const [avatarUid, setAvatarUid] = useState<number | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
   const [activeSpeakerUid, setActiveSpeakerUid] = useState<string | number | null>(null);
+  const [participantMeta, setParticipantMeta] = useState<Record<string, ParticipantMetadata>>({});
+  const [endedByHost, setEndedByHost] = useState(false);
+  const [channelName, setChannelName] = useState("");
+  const [meetingSessionId, setMeetingSessionId] = useState("");
+  const [meetingClassId, setMeetingClassId] = useState("");
   const agentActiveRef = useRef(false);
   const silenceTimerRef = useRef<number | null>(null);
   const silenceWarnedRef = useRef(false);
@@ -82,10 +96,16 @@ export function useMeeting(roomId: string) {
     session.client.removeAllListeners();
     localTracks.current = [];
     localUidRef.current = "";
+    channelNameRef.current = "";
+    meetingSessionIdRef.current = "";
+    meetingClassIdRef.current = "";
     setLocalVideoTrack(undefined);
     setLocalUid("");
     setRemoteUsers([]);
     setActiveSpeakerUid(null);
+    setChannelName("");
+    setMeetingSessionId("");
+    setMeetingClassId("");
     try { await session.client.leave(); } catch { /* The client may not have joined yet. */ }
     if (client.current === session.client) client.current = null;
     agentActiveRef.current = false;
@@ -94,35 +114,90 @@ export function useMeeting(roomId: string) {
     if (showLeft) setLeft(true);
   }, [clearSilenceTimer]);
 
+  // Poll for authoritative meeting status and participant metadata after join.
+  useEffect(() => {
+    if (!initializedRef.current || !sessionRef.current?.joined) return;
+
+    let isMounted = true;
+    const pollInterval = setInterval(async () => {
+      if (!isMounted) return;
+      const resolvedChannel = channelNameRef.current || roomId;
+      try {
+        const statusRes = await fetch(`/api/meeting/${resolvedChannel}/status`);
+        if (statusRes.ok) {
+          const { status } = await statusRes.json();
+          if (status === "ended") {
+            setEndedByHost(true);
+            window.setTimeout(() => {
+              void cleanupSession(false);
+            }, 500);
+          }
+        }
+
+        const partsRes = await fetch(`/api/meeting/${resolvedChannel}/participants`);
+        if (partsRes.ok) {
+          const { participants } = await partsRes.json();
+          if (participants) setParticipantMeta(participants);
+        }
+      } catch {
+        // Polling is informational; join/leave owns hard failures.
+      }
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [cleanupSession, roomId, channelName]);
+
   const stopAgent = useCallback(async () => {
     agentActiveRef.current = false;
     clearSilenceTimer();
     silenceWarnedRef.current = false;
-    try { await fetch("/api/agora/agent/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelName: roomId }) }); } catch { /* best-effort */ }
+    const resolvedChannel = channelNameRef.current || roomId;
+    const resolvedSessionId = meetingSessionIdRef.current || roomId;
+    try {
+      await fetch("/api/meeting/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop", channelName: resolvedChannel, sessionId: resolvedSessionId })
+      });
+    } catch { /* best-effort */ }
     setAgentUid(null);
     setAvatarUid(null);
     setAgentStatus("idle");
   }, [roomId, clearSilenceTimer]);
 
   const leave = useCallback(async () => {
-    if (agentStatus === "active") await stopAgent();
     void cleanupSession(true);
-  }, [cleanupSession, agentStatus, stopAgent]);
+  }, [cleanupSession]);
 
   const startAiMentor = useCallback(async () => {
     if (agentStatus !== "idle") return;
     setAgentStatus("starting");
+    const resolvedChannel = channelNameRef.current || roomId;
+    const resolvedSessionId = meetingSessionIdRef.current || roomId;
     try {
-      const res = await fetch("/api/agora/agent/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelName: roomId }) });
+      const res = await fetch("/api/meeting/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          channelName: resolvedChannel,
+          sessionId: resolvedSessionId,
+          rtcUid: String(localUidRef.current),
+          forceRestart: true,
+        })
+      });
       const data = await res.json();
-      console.log("[AI] /api/agora/agent/start response:", JSON.stringify(data));
+      console.log("[AI] /api/meeting/control response:", JSON.stringify(data));
       if (!res.ok) throw new Error(data.error || "Failed to start agent");
-      setAgentUid(data.agentUid);
-      setAvatarUid(data.avatarUid ?? null);
+      setAgentUid(data.agentId); // Note: meeting control returns agentId, not agentUid
+      setAvatarUid(null); // STT bot and audio agent don't have avatar video right now
       setAgentStatus("active");
       agentActiveRef.current = true;
       silenceWarnedRef.current = false;
-      // No LiveAvatar — agent is audio-only, no video tile expected from UID 999998.
+
       // Arm the initial silence timer — resets whenever volume-indicator fires audible levels
       silenceTimerRef.current = window.setTimeout(() => {
         if (!agentActiveRef.current) return;
@@ -149,6 +224,8 @@ export function useMeeting(roomId: string) {
     }
 
     initializedRef.current = true;
+    AgoraRTC.setLogLevel(2);
+    AgoraRTC.disableLogUpload();
     const meetingClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
     client.current = meetingClient;
     const session = { client: meetingClient, tracks: [] as [IMicrophoneAudioTrack?, ICameraVideoTrack?], joined: false, cancelled: false };
@@ -199,6 +276,10 @@ export function useMeeting(roomId: string) {
     const handleUserLeft = (user: IAgoraRTCRemoteUser) => {
       console.log(`[Avatar:left] UID=${user.uid}`);
       if (user.uid === AVATAR_UID) console.log(`[Avatar:video] UID 999998 video track stopped/unpublished`);
+      if (user.uid === 999999) {
+        setAgentStatus("idle");
+        agentActiveRef.current = false;
+      }
       setRemoteUsers((users) => users.filter((item) => item.uid !== user.uid));
       setActiveSpeakerUid((prev) => (prev === user.uid ? null : prev));
     };
@@ -243,6 +324,10 @@ export function useMeeting(roomId: string) {
     };
     meetingClient.on("user-joined", (user: IAgoraRTCRemoteUser) => {
       console.log(`[Agora] user-joined uid=${user.uid}`);
+      if (user.uid === 999999) {
+        setAgentStatus("active");
+        agentActiveRef.current = true;
+      }
       setRemoteUsers((users) => users.some((u) => u.uid === user.uid) ? users : [...users, user]);
     });
     meetingClient.on("user-published", handleUserPublished);
@@ -254,9 +339,19 @@ export function useMeeting(roomId: string) {
     async function join() {
       try {
         console.log("[Agora] Requesting token");
-        const response = await fetch("/api/agora/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channelName: roomId }) });
+        const response = await fetch("/api/agora/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ meetingId: roomId }),
+        });
         const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not get a meeting token.");
         if (session.cancelled) return;
+        channelNameRef.current = data.channelName;
+        meetingSessionIdRef.current = data.sessionId;
+        meetingClassIdRef.current = data.classId;
+        setChannelName(data.channelName);
+        setMeetingSessionId(data.sessionId);
+        setMeetingClassId(data.classId);
         console.log("[Agora] Joining channel");
         const uid = await meetingClient.join(data.appId, data.channelName, data.token, data.uid);
         if (session.cancelled) { await meetingClient.leave(); return; }
@@ -264,6 +359,20 @@ export function useMeeting(roomId: string) {
         localUidRef.current = uid;
         setLocalUid(uid);
         console.log("[Agora] Joined channel");
+
+        fetch(`/api/meeting/${data.channelName}/participants`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid })
+        })
+          .then(async () => {
+            const partsRes = await fetch(`/api/meeting/${data.channelName}/participants`);
+            if (!partsRes.ok) return;
+            const { participants } = await partsRes.json();
+            if (participants) setParticipantMeta(participants);
+          })
+          .catch(e => console.error("Failed to register participant mapping", e));
+
         const tracks = await AgoraRTC.createMicrophoneAndCameraTracks();
         if (session.cancelled) { tracks.forEach((track) => track?.close()); await meetingClient.leave(); return; }
         session.tracks = tracks;
@@ -312,6 +421,11 @@ export function useMeeting(roomId: string) {
     localUid, localVideoTrack, microphoneOn, cameraOn,
     remoteUsers, activeSpeakerUid,
     agentUid, avatarUid, agentStatus,
-    toggleMicrophone, toggleCamera, leave, startAiMentor,
+    participantMeta,
+    endedByHost,
+    channelName,
+    sessionId: meetingSessionId,
+    classId: meetingClassId,
+    toggleMicrophone, toggleCamera, leave, startAiMentor, stopAgent,
   };
 }

@@ -48,15 +48,19 @@ export class CourseRetrievalAdapter implements RetrievalAdapter {
     });
 
     return results.points.map((res) => {
-      const payload = res.payload as Record<string, any>;
+      const payload = res.payload as Record<string, unknown>;
+      const materialId = String(payload.material_id ?? "unknown");
+      const chunkIndex = String(payload.chunk_index ?? "unknown");
+      const content = typeof payload.content === "string" ? payload.content : "";
+      const citation = typeof payload.source === "string" ? payload.source : "Course Material";
       return {
-        content: payload?.content || "",
-        source: `course:${payload?.material_id}:chunk-${payload?.chunk_index}`,
+        content,
+        source: `course:${materialId}:chunk-${chunkIndex}`,
         sourceType: this.sourceType,
         score: res.score,
         permissions: "class",
-        metadata: payload || {},
-        citation: payload?.source || "Course Material",
+        metadata: payload,
+        citation,
       };
     });
   }

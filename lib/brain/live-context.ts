@@ -5,7 +5,7 @@
  */
 
 import { redis } from "@/lib/redis";
-import { ClassroomContext, RecentUtterance } from "./types";
+import { ClassroomContext } from "./types";
 import { classifyQueue } from "@/lib/queue";
 
 const MAX_RECENT_UTTERANCES = 15;

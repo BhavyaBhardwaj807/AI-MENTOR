@@ -19,6 +19,9 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
+# Runtime uploads
+data/uploads/
+
 # Vercel
 .vercel/
 
@@ -37,4 +40,3 @@ Thumbs.db
 
 # keys
 private*
-

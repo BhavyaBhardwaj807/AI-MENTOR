@@ -9,12 +9,20 @@ import { v4 as uuidv4 } from "uuid";
 import { brainLog as logger } from "../lib/logger";
 
 const API_BASE = "http://localhost:3000/api";
+const brainSecret = process.env.BRAIN_SERVER_SECRET;
+const sttSecret = process.env.AGORA_STT_WEBHOOK_SECRET;
 
 async function main() {
+  if (!brainSecret) {
+    throw new Error("BRAIN_SERVER_SECRET must be set to run scripts/e2e-pipeline.ts");
+  }
+  if (!sttSecret) {
+    throw new Error("AGORA_STT_WEBHOOK_SECRET must be set to run scripts/e2e-pipeline.ts");
+  }
+
   logger.info("Starting E2E Pipeline Test...");
 
   const sessionId = uuidv4();
-  const classId = uuidv4();
   const studentUid = uuidv4();
 
   // 1. Simulate STT Webhook
@@ -39,7 +47,10 @@ async function main() {
 
   const sttRes = await fetch(`${API_BASE}/webhooks/agora/stt`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sttSecret}`,
+    },
     body: JSON.stringify(webhookBody),
   });
 
@@ -66,7 +77,10 @@ async function main() {
   try {
     const chatRes = await fetch(`${API_BASE}/brain/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${brainSecret}`,
+      },
       body: JSON.stringify(chatBody),
     });
 

@@ -14,20 +14,24 @@ interface Quiz {
   questions: QuizQuestion[];
 }
 
+interface QuizFeedback {
+  questionId: string;
+  isCorrect: boolean;
+  correctAnswer: string | null;
+}
+
 export function QuizModal({
   classId,
   sessionId,
-  studentId,
 }: {
   classId: string;
   sessionId: string;
-  studentId: string;
 }) {
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState<number | null>(null);
-  const [feedback, setFeedback] = useState<any[] | null>(null);
+  const [feedback, setFeedback] = useState<QuizFeedback[] | null>(null);
 
   // Poll for active quizzes
   useEffect(() => {
@@ -70,7 +74,6 @@ export function QuizModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           quizId: activeQuiz.id,
-          studentId,
           answers,
         }),
       });
@@ -133,7 +136,7 @@ export function QuizModal({
             <div className={styles.feedbackList}>
               {feedback?.map((f, i) => (
                 <div key={f.questionId} className={f.isCorrect ? styles.correct : styles.incorrect}>
-                  Question {i + 1}: {f.isCorrect ? "✅ Correct" : `❌ Incorrect (Answer was ${f.correctAnswer})`}
+                  Question {i + 1}: {f.isCorrect ? "Correct" : `Incorrect (answer was ${f.correctAnswer})`}
                 </div>
               ))}
             </div>

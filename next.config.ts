@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
 
   // Suppress verbose logs for pino transport in edge/server
   serverExternalPackages: ["pino", "pino-pretty"],
+
+  experimental: {
+    useTypeScriptCli: false,
+  },
 };
 
 export default nextConfig;

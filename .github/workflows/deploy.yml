@@ -32,6 +32,9 @@ jobs:
       - name: ESLint
         run: npm run lint
 
+      - name: Tests
+        run: npm test -- --run
+
   # ── Job 2: Build Docker image + push to GHCR ──────────────────────────────
   build:
     name: Build & Push Image
@@ -139,11 +142,21 @@ jobs:
             source .env.prod
             set +a
 
+            echo "── Validating required env vars ──"
+            required_vars="DB_PASSWORD REDIS_PASSWORD BETTER_AUTH_SECRET BRAIN_SERVER_SECRET AGORA_APP_ID AGORA_APP_CERTIFICATE AGORA_REST_KEY AGORA_REST_SECRET LLM_API_KEY NEXT_PUBLIC_APP_URL BETTER_AUTH_URL DATABASE_URL REDIS_URL QDRANT_URL"
+            for var in $required_vars; do
+              value="$(eval "printf '%s' \"\${$var:-}\"")"
+              if [ -z "$(printf '%s' "$value" | tr -d '[:space:]')" ] || printf '%s' "$value" | grep -qi "openssl rand"; then
+                echo "Missing or placeholder env var: $var"
+                exit 1
+              fi
+            done
+
             echo "── Pulling latest image ──"
             REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
             export GITHUB_REPOSITORY="$REPO_LOWER"
             export IMAGE_TAG=latest
-            docker compose -f docker-compose.prod.yml pull app
+            docker compose -f docker-compose.prod.yml pull app worker
 
             echo "── Starting services ──"
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --no-build
@@ -157,6 +170,9 @@ jobs:
 
             echo "── Recent app logs ──"
             docker compose -f docker-compose.prod.yml logs app --tail=20
+
+            echo "── Recent worker logs ──"
+            docker compose -f docker-compose.prod.yml logs worker --tail=20
 
       - name: Deployment summary
         run: |

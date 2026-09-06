@@ -156,7 +156,7 @@ export async function llmJsonCall<T>(
   const maxRetries = options.maxRetries ?? 3;
   let attempts = 0;
   let lastError: Error | null = null;
-  let currentMessages = [...options.messages];
+  const currentMessages = [...options.messages];
 
   // Inject initial JSON instruction
   const systemMsgIdx = currentMessages.findIndex((m) => m.role === "system");

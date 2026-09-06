@@ -4,17 +4,10 @@ import { courseMaterials } from "@/lib/db/schema";
 import { storage } from "@/lib/storage";
 import { embedQueue } from "@/lib/queue";
 import { INGESTION } from "@/lib/brain/config";
-// TODO: Replace with BetterAuth session check once auth is fully integrated
-// import { auth } from "@/lib/auth";
+import { requireClassOwner } from "@/lib/auth/guards";
 
 export async function POST(request: Request) {
   try {
-    // 1. Auth check (placeholder)
-    // const session = await auth.getSession({ headers: request.headers });
-    // if (!session || session.user.role !== "teacher") {
-    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // }
-
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const classId = formData.get("classId") as string | null;
@@ -25,6 +18,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const access = await requireClassOwner(classId);
+    if (!access.ok) return access.response;
 
     if (file.size > INGESTION.maxFileSizeBytes) {
       return NextResponse.json(

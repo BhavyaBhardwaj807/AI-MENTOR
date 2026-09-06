@@ -68,6 +68,7 @@ export const account = pgTable("account", {
   password: text("password"),
   createdAt: timestamp("created_at").notNull(),
   updatedAt: timestamp("updated_at").notNull(),
+  issuer: text("issuer"),
 });
 
 export const verification = pgTable("verification", {
@@ -87,6 +88,8 @@ export const classes = pgTable("classes", {
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   description: text("description"),
+  agentName: text("agent_name").default("George"),
+  joinCode: text("join_code").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -274,6 +277,46 @@ export const learningEvents = pgTable(
   ],
 );
 
+// ── Assignments (Ported from feat/ai-mentor-auth) ───────────────────────
+
+export const assignments = pgTable("assignments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  classId: uuid("class_id")
+    .references(() => classes.id)
+    .notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const assignmentSubmissions = pgTable(
+  "assignment_submissions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assignmentId: uuid("assignment_id")
+      .references(() => assignments.id)
+      .notNull(),
+    studentId: text("student_id")
+      .references(() => user.id)
+      .notNull(),
+    status: text("status", { enum: ["pending", "submitted"] }).default("pending").notNull(),
+    content: text("content"),
+    fileName: text("file_name"),
+    filePath: text("file_path"),
+    fileType: text("file_type"),
+    fileSize: integer("file_size"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("assignment_submissions_assignment_student_idx").on(
+      table.assignmentId,
+      table.studentId,
+    ),
+  ],
+);
+
 // ── AI interaction logs ────────────────────────────────────────────────
 
 export const aiInteractions = pgTable(
@@ -340,6 +383,7 @@ export const quizzes = pgTable("quizzes", {
     .references(() => classes.id)
     .notNull(),
   generatedBy: text("generated_by", { enum: ["ai", "teacher"] }).default("ai"),
+  status: text("status", { enum: ["generating", "draft", "published", "completed", "failed"] }).default("generating").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -355,21 +399,31 @@ export const quizQuestions = pgTable("quiz_questions", {
   difficulty: integer("difficulty").default(1),
 });
 
-export const quizAttempts = pgTable("quiz_attempts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  quizId: uuid("quiz_id")
-    .references(() => quizzes.id)
-    .notNull(),
-  studentId: text("student_id")
-    .references(() => user.id)
-    .notNull(),
-  questionId: uuid("question_id")
-    .references(() => quizQuestions.id)
-    .notNull(),
-  answerGiven: text("answer_given"),
-  isCorrect: boolean("is_correct"),
-  answeredAt: timestamp("answered_at", { withTimezone: true }).defaultNow(),
-});
+export const quizAttempts = pgTable(
+  "quiz_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    quizId: uuid("quiz_id")
+      .references(() => quizzes.id)
+      .notNull(),
+    studentId: text("student_id")
+      .references(() => user.id)
+      .notNull(),
+    questionId: uuid("question_id")
+      .references(() => quizQuestions.id)
+      .notNull(),
+    answerGiven: text("answer_given"),
+    isCorrect: boolean("is_correct"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("quiz_attempts_quiz_student_question_idx").on(
+      table.quizId,
+      table.studentId,
+      table.questionId,
+    ),
+  ],
+);
 
 // ── Session reports ────────────────────────────────────────────────────
 
@@ -410,3 +464,18 @@ export const jobRuns = pgTable(
   },
   (table) => [index("job_runs_status_idx").on(table.status)],
 );
+
+// ── Messages (Direct messaging between Teacher and Student) ─────────────
+
+export const messages = pgTable("messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  studentId: text("student_id")
+    .references(() => user.id)
+    .notNull(),
+  teacherId: text("teacher_id")
+    .references(() => user.id)
+    .notNull(),
+  senderRole: text("sender_role", { enum: ["teacher", "student"] }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});

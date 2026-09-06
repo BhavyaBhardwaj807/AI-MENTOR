@@ -130,3 +130,60 @@
 .closeBtn:hover {
   background: #444;
 }
+
+.teacherPanel {
+  position: absolute;
+  top: 80px;
+  right: 20px;
+  width: 350px;
+  background: rgba(26, 26, 26, 0.95);
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 16px;
+  color: white;
+  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.draftQuestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.draftQuestion {
+  background: #242424;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.draftQuestion p {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.draftQuestion ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.publishBtn {
+  margin-top: 16px;
+  width: 100%;
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.publishBtn:hover {
+  background: #059669;
+}

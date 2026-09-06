@@ -1,0 +1,25 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+
+interface Student { id: string; name: string; email: string; }
+interface Message { id: string; student_id: string; sender_role: "student" | "teacher"; content: string; created_at: string; }
+
+export default function ConnectWithStudents() {
+  const { user, loading: authLoading } = useAuth("teacher");
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selected, setSelected] = useState<Student | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { if (!user) return; fetch("/api/teacher/students").then((r) => r.json()).then((data) => { const list = Array.isArray(data) ? data : []; setStudents(list); if (list.length) { setMessagesLoading(true); setSelected(list[0]); } }).catch(() => setError("Failed to fetch students")).finally(() => setLoading(false)); }, [user]);
+  useEffect(() => { if (!selected) return; fetch(`/api/messages?student_id=${selected.id}`).then(async (r) => { const data = await r.json(); if (!r.ok) throw new Error(data.error); return data; }).then((data) => setMessages(Array.isArray(data) ? data : [])).catch((e) => setError(e.message ?? "Failed to fetch messages")).finally(() => setMessagesLoading(false)); }, [selected]);
+
+  async function send(e: React.FormEvent) { e.preventDefault(); if (!selected || !text.trim()) return; const response = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_id: selected.id, content: text.trim() }) }); const data = await response.json(); if (!response.ok) { setError(data.error ?? "Failed to send message"); return; } setMessages((prev) => [...prev, data]); setText(""); }
+  if (authLoading || !user) return null;
+  return <div className="flex flex-col w-full"><div className="mb-6"><h1 className="text-[24px] font-semibold text-on-surface tracking-tight">Connect with Students</h1><p className="text-[13px] text-outline">Read and reply to student messages</p></div><div className="flex flex-col lg:flex-row gap-4 w-full" style={{ minHeight: "640px" }}><div className="w-full lg:w-80 flex flex-col bg-surface-container-low rounded-xl overflow-hidden"><div className="p-4 text-[16px] font-medium text-on-surface">Student Directory</div><div className="flex-1 p-3 overflow-y-auto">{loading ? <p className="p-6 text-center text-outline">Loading students…</p> : students.length === 0 ? <p className="p-6 text-center text-outline">No connected students.</p> : students.map((student) => <button type="button" key={student.id} onClick={() => { setMessagesLoading(true); setSelected(student); }} className={`w-full flex items-center gap-3 p-3 rounded-lg text-left ${selected?.id === student.id ? "bg-surface-container-high" : "hover:bg-surface-container"}`}><div className="w-9 h-9 rounded-full bg-surface-container-highest flex items-center justify-center text-[13px] text-on-surface">{student.name.slice(0, 2).toUpperCase()}</div><div className="min-w-0"><p className="text-[14px] font-medium text-on-surface truncate">{student.name}</p><p className="text-[12px] text-outline truncate">{student.email}</p></div></button>)}</div></div><div className="flex-1 flex flex-col bg-surface-container-low rounded-xl overflow-hidden">{selected ? <><div className="p-4 bg-surface-container-high border-b border-outline-variant/20"><p className="text-[16px] font-medium text-on-surface">{selected.name}</p><p className="text-[12px] text-on-surface-variant">{selected.email}</p></div><div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3">{messagesLoading ? <p className="text-center text-outline p-6">Loading messages…</p> : messages.length === 0 ? <p className="text-center text-outline p-6">No messages yet.</p> : messages.map((item) => <div key={item.id} className={`max-w-[80%] rounded-lg px-3 py-2 ${item.sender_role === "teacher" ? "self-end bg-ag-primary text-ag-on-primary" : "self-start bg-surface-container-high text-on-surface"}`}><p className="text-[14px] whitespace-pre-wrap">{item.content}</p><p className="text-[11px] opacity-70 mt-1">{new Date(item.created_at).toLocaleString()}</p></div>)}</div><form onSubmit={send} className="p-4 border-t border-outline-variant/20 flex gap-2"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply to student…" className="flex-1 bg-surface-container-lowest rounded-lg px-3 py-2 text-[14px] text-on-surface focus:outline-none focus:ring-1 focus:ring-ag-primary" /><button disabled={!text.trim()} className="px-4 py-2 rounded-lg bg-ag-primary text-ag-on-primary text-[13px] font-medium disabled:opacity-50">Send</button></form></> : <div className="flex-1 flex items-center justify-center text-outline">Select a student to view messages.</div>}</div></div>{error && <p className="mt-3 text-[13px] text-ag-error">{error}</p>}</div>;
+}

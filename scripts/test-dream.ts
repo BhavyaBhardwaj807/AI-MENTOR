@@ -12,9 +12,6 @@ import { brainLog as logger } from "../lib/logger";
 import { dreamQueue } from "../lib/queue";
 import { MemoryRetrievalAdapter } from "../lib/retrieval/memory-adapter";
 
-// Delay utility
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
 async function main() {
   logger.info("Starting Dream Worker verification...");
 

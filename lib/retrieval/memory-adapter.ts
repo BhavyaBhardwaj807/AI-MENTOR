@@ -42,15 +42,17 @@ export class MemoryRetrievalAdapter implements RetrievalAdapter {
     });
 
     return results.points.map((res) => {
-      const payload = res.payload as Record<string, any>;
+      const payload = res.payload as Record<string, unknown>;
+      const content = typeof payload.content === "string" ? payload.content : "";
+      const concept = typeof payload.concept === "string" ? payload.concept : "unknown";
       return {
-        content: payload?.content || "",
+        content,
         source: `memory:${res.id}`,
         sourceType: this.sourceType,
         score: res.score,
         permissions: "student-private",
-        metadata: payload || {},
-        citation: `Student History (Concept: ${payload?.concept})`,
+        metadata: payload,
+        citation: `Student History (Concept: ${concept})`,
       };
     });
   }

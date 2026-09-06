@@ -18,8 +18,9 @@ export type MeetingStageProps = {
   onToggleCamera: () => void;
   onLeave: () => void;
   agentStatus?: AgentStatus;
-  onStartAgent?: () => void;
-  onGenerateQuiz?: () => void;
+  onToggleAgent?: () => void;
+  onEndMeeting?: () => void;
+  notice?: string;
 };
 
 /**
@@ -30,7 +31,7 @@ export type MeetingStageProps = {
 export default function MeetingStage({
   roomId, status, connected, participants,
   micOn, cameraOn, onToggleMic, onToggleCamera, onLeave,
-  agentStatus, onStartAgent, onGenerateQuiz,
+  agentStatus, onToggleAgent, onEndMeeting, notice,
 }: MeetingStageProps) {
   return (
     <div className={styles.stage}>
@@ -42,6 +43,11 @@ export default function MeetingStage({
       />
       <main className={styles.stageMain}>
         <ParticipantGrid participants={participants} />
+        {notice && (
+          <div className={styles.meetingNotice} role="status">
+            {notice}
+          </div>
+        )}
       </main>
       <ControlBar
         micOn={micOn}
@@ -50,8 +56,8 @@ export default function MeetingStage({
         onToggleCamera={onToggleCamera}
         onLeave={onLeave}
         agentStatus={agentStatus}
-        onStartAgent={onStartAgent}
-        onGenerateQuiz={onGenerateQuiz}
+        onToggleAgent={onToggleAgent}
+        onEndMeeting={onEndMeeting}
       />
     </div>
   );

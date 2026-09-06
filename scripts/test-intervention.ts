@@ -1,10 +1,9 @@
 import "dotenv/config";
-import { initLiveContext, setLastAiSpokeAt } from "../lib/brain/live-context";
+import { initLiveContext } from "../lib/brain/live-context";
 import { redis } from "../lib/redis";
 import { db } from "../lib/db";
-import { meetingSessions } from "../lib/db/schema";
+import { classes, meetingSessions } from "../lib/db/schema";
 import { startInterventionEngine } from "../workers/intervention-engine";
-import { eq } from "drizzle-orm";
 
 async function runTest() {
   console.log("Setting up intervention test...");
@@ -14,7 +13,6 @@ async function runTest() {
   const mockAgentId = "mock-agent-123";
 
   // Create a mock class
-  const { classes } = require("../lib/db/schema");
   await db.insert(classes).values({
     id: classId,
     name: "Test Class",
