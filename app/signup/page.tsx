@@ -1,30 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 
-interface Subject { id: string; name: string; }
+type Role = "student" | "teacher";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [role, setRole] = useState<Role>("student");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [teacherInviteCode, setTeacherInviteCode] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/subjects")
-      .then((r) => r.json())
-      .then((data: Subject[]) => setSubjects(data))
-      .catch(() => {});
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,19 +36,13 @@ export default function SignupPage() {
         return;
       }
 
-      if (teacherInviteCode.trim()) {
-        const inviteResponse = await fetch("/api/auth/teacher-invite", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: teacherInviteCode.trim() }),
-        });
-
-        if (!inviteResponse.ok) {
-          const data = await inviteResponse.json().catch(() => ({}));
-          setError(data.error || "Account created as a student, but teacher invite validation failed.");
+      // If teacher, upgrade the role
+      if (role === "teacher") {
+        const res = await fetch("/api/auth/teacher-invite", { method: "POST" });
+        if (!res.ok) {
+          setError("Account created but failed to set teacher role. Contact support.");
           return;
         }
-
         router.push("/teacher/dashboard");
         return;
       }
@@ -71,71 +57,63 @@ export default function SignupPage() {
 
   return (
     <main className="min-h-screen w-full flex items-center justify-center bg-surface p-6">
-      <div className="w-full max-w-[360px] flex flex-col items-center">
+      <div className="w-full max-w-[400px] flex flex-col items-center">
 
-        {/* Brand logo (minimal) */}
-        <div className="w-12 h-12 bg-surface-container-high rounded-full flex items-center justify-center mb-8 shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-outline-variant/30">
+        {/* Brand logo */}
+        <div className="w-12 h-12 bg-surface-container-high rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-outline-variant/30">
           <span className="material-symbols-outlined text-on-surface text-[22px]">all_inclusive</span>
         </div>
 
-        <h1 className="text-[20px] font-medium text-on-surface tracking-tight mb-8">Create your account</h1>
+        <h1 className="text-[20px] font-medium text-on-surface tracking-tight mb-6">Create your account</h1>
 
-        <p className="text-[13px] text-on-surface-variant text-center mb-8">
-          Student accounts can join classes with a teacher-provided code. Teachers need an invite code.
-        </p>
+        {/* Role selector */}
+        <div className="w-full flex rounded-[12px] border border-outline-variant/40 overflow-hidden mb-6">
+          <button
+            type="button"
+            onClick={() => { setRole("student"); setError(""); }}
+            className={`flex-1 py-3 text-[14px] font-medium transition-colors flex items-center justify-center gap-2 ${
+              role === "student"
+                ? "bg-ag-primary text-on-surface"
+                : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">school</span>
+            Student
+          </button>
+          <button
+            type="button"
+            onClick={() => { setRole("teacher"); setError(""); }}
+            className={`flex-1 py-3 text-[14px] font-medium transition-colors flex items-center justify-center gap-2 border-l border-outline-variant/40 ${
+              role === "teacher"
+                ? "bg-ag-primary text-on-surface"
+                : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">person</span>
+            Teacher
+          </button>
+        </div>
 
         <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
+          <input
+            type="text"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Full name"
+            className="w-full h-[48px] bg-transparent border-b border-outline-variant/50 px-2 text-on-surface placeholder:text-outline text-[15px] focus:outline-none focus:border-on-surface transition-colors rounded-none"
+          />
 
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Full name"
-              className="w-full h-[48px] bg-transparent border-b border-outline-variant/50 px-2 text-on-surface placeholder:text-outline text-[15px] focus:outline-none focus:border-on-surface transition-colors rounded-none"
-            />
-          </div>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email address"
+            className="w-full h-[48px] bg-transparent border-b border-outline-variant/50 px-2 text-on-surface placeholder:text-outline text-[15px] focus:outline-none focus:border-on-surface transition-colors rounded-none"
+          />
 
-          <div className="flex flex-col gap-2">
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Institutional email"
-              className="w-full h-[48px] bg-transparent border-b border-outline-variant/50 px-2 text-on-surface placeholder:text-outline text-[15px] focus:outline-none focus:border-on-surface transition-colors rounded-none"
-            />
-          </div>
-
-          {/* Subject info (student: informational only) */}
-          {subjects.length > 0 && (
-            <div className="px-2 pt-2">
-              <span className="block text-[11px] text-on-surface-variant mb-2">Available Subjects</span>
-              <div className="flex flex-wrap gap-1.5">
-                {subjects.map((s) => (
-                  <span
-                    key={s.id}
-                    className="px-2.5 py-1 text-[11px] rounded-full border border-outline-variant/30 text-on-surface-variant"
-                  >
-                    {s.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              value={teacherInviteCode}
-              onChange={(e) => setTeacherInviteCode(e.target.value)}
-              placeholder="Teacher invite code (optional)"
-              className="w-full h-[48px] bg-transparent border-b border-outline-variant/50 px-2 text-on-surface placeholder:text-outline text-[15px] focus:outline-none focus:border-on-surface transition-colors rounded-none"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2 relative mt-2">
+          <div className="relative mt-2">
             <input
               type={showPw ? "text" : "password"}
               required
@@ -155,7 +133,7 @@ export default function SignupPage() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-2 relative">
+          <div className="relative">
             <input
               type={showPw ? "text" : "password"}
               required
@@ -180,7 +158,7 @@ export default function SignupPage() {
             {loading ? (
               <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
             ) : (
-              "Create Account"
+              `Create ${role === "teacher" ? "Teacher" : "Student"} Account`
             )}
           </button>
         </form>

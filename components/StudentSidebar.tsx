@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { authClient } from "@/lib/auth/client";
 
 interface Props {
   userName: string;
@@ -21,7 +22,7 @@ export function StudentSidebar({ userName }: Props) {
   const router = useRouter();
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await authClient.signOut();
     router.push("/login");
   }
 
