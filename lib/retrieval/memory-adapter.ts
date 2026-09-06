@@ -28,32 +28,38 @@ export class MemoryRetrievalAdapter implements RetrievalAdapter {
 
     const queryVector = await generateEmbedding(query);
 
-    const results = await qdrant.query(COLLECTIONS.STUDENT_MEMORIES, {
-      query: queryVector,
-      limit: context.maxResults,
-      score_threshold: context.scoreThreshold,
-      filter: {
-        must: [
-          { key: "class_id", match: { value: context.classId } },
-          { key: "student_id", match: { value: context.studentId } }
-        ],
-      },
-      with_payload: true,
-    });
+    try {
+      const results = await qdrant.query(COLLECTIONS.STUDENT_MEMORIES, {
+        query: queryVector,
+        limit: context.maxResults,
+        score_threshold: context.scoreThreshold,
+        filter: {
+          must: [
+            { key: "class_id", match: { value: context.classId } },
+            { key: "student_id", match: { value: context.studentId } }
+          ],
+        },
+        with_payload: true,
+      });
 
-    return results.points.map((res) => {
-      const payload = res.payload as Record<string, unknown>;
-      const content = typeof payload.content === "string" ? payload.content : "";
-      const concept = typeof payload.concept === "string" ? payload.concept : "unknown";
-      return {
-        content,
-        source: `memory:${res.id}`,
-        sourceType: this.sourceType,
-        score: res.score,
-        permissions: "student-private",
-        metadata: payload,
-        citation: `Student History (Concept: ${concept})`,
-      };
-    });
+      return results.points.map((res) => {
+        const payload = res.payload as Record<string, unknown>;
+        const content = typeof payload.content === "string" ? payload.content : "";
+        const concept = typeof payload.concept === "string" ? payload.concept : "unknown";
+        return {
+          content,
+          source: `memory:${res.id}`,
+          sourceType: this.sourceType,
+          score: res.score,
+          permissions: "student-private",
+          metadata: payload,
+          citation: `Student History (Concept: ${concept})`,
+        };
+      });
+    } catch (err: any) {
+      if (err?.status === 404) return [];
+      console.error("[MemoryRetrievalAdapter] query failed:", err);
+      return [];
+    }
   }
 }
