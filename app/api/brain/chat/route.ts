@@ -280,7 +280,9 @@ export async function POST(req: NextRequest) {
   }, "[Brain] incoming turn");
 
   const ctx = await getClassroomContext(sessionId);
-  const confusedConcepts = ctx?.confusion_signals?.map((s) => s.concept) ?? [];
+  const rawSignals = ctx?.confusion_signals;
+  const signalsArray = Array.isArray(rawSignals) ? rawSignals : [];
+  const confusedConcepts = signalsArray.map((s) => s.concept);
 
   // Determine speaker role
   let speakerRole: SpeakerRole = "unknown";

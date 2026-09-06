@@ -31,8 +31,9 @@ export class LiveContextAdapter implements RetrievalAdapter {
     const lines = ["Live Classroom State:"];
     lines.push(`- Teacher Speaking: ${liveContext.teacher_speaking ? "Yes" : "No"}`);
 
-    if (liveContext.confusion_signals && liveContext.confusion_signals.length > 0) {
-      lines.push(`- Confused Concepts Detected: ${liveContext.confusion_signals.map(c => c.concept).join(", ")}`);
+    const signalsArray = Array.isArray(liveContext.confusion_signals) ? liveContext.confusion_signals : [];
+    if (signalsArray.length > 0) {
+      lines.push(`- Confused Concepts Detected: ${signalsArray.map(c => c.concept).join(", ")}`);
     }
 
     if (liveContext.recent_utterances && liveContext.recent_utterances.length > 0) {

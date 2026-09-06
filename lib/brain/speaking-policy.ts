@@ -73,7 +73,8 @@ export function evaluateSpeakingPolicy(input: SpeakingPolicyInput): SpeakingPoli
   if (likelyLecture) confidence -= 0.35;
   if (inCooldown) confidence -= 0.2;
 
-  const hasAutonomousContext = Boolean(context?.unanswered_questions?.length || context?.confusion_signals?.length);
+  const signalsArray = Array.isArray(context?.confusion_signals) ? context.confusion_signals : [];
+  const hasAutonomousContext = Boolean(context?.unanswered_questions?.length || signalsArray.length);
   if (hasAutonomousContext && !context?.teacher_speaking && !inCooldown) confidence += 0.12;
 
   confidence = clamp01(confidence);

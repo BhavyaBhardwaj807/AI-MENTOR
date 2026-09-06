@@ -102,8 +102,9 @@ async function getLiveQuizContext(sessionId?: string) {
   const lines = ["Live session context:"];
   if (liveContext.current_topic) lines.push(`- Current topic: ${liveContext.current_topic}`);
   if (liveContext.current_subtopic) lines.push(`- Current subtopic: ${liveContext.current_subtopic}`);
-  if (liveContext.confusion_signals?.length) {
-    lines.push(`- Confusion signals: ${liveContext.confusion_signals.map((signal) => `${signal.concept} (${signal.count})`).join(", ")}`);
+  const signalsArray = Array.isArray(liveContext.confusion_signals) ? liveContext.confusion_signals : [];
+  if (signalsArray.length) {
+    lines.push(`- Confusion signals: ${signalsArray.map((signal) => `${signal.concept} (${signal.count})`).join(", ")}`);
   }
   if (liveContext.unanswered_questions?.length) {
     lines.push(`- Unanswered questions: ${liveContext.unanswered_questions.slice(0, 3).map((question) => question.text).join(" | ")}`);
