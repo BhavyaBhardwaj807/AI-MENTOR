@@ -13,7 +13,8 @@ function createRedis() {
   });
 
   client.on("error", (err) => {
-    // Log but don't crash — Redis may not be running in all envs
+    // During `next build` there is no Redis — suppress the noise
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
     console.error("[Redis] connection error:", err.message);
   });
 
